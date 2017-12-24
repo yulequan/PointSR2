@@ -1,11 +1,14 @@
 import collections
 import os
 import time
+
 import numpy as np
 from scipy import spatial
 from tqdm import tqdm
-import model_utils
+
 import data_provider
+import model_utils
+
 
 def load_off(path):
     #Reset this mesh:
@@ -61,7 +64,7 @@ def sampling_from_face(face):
     return points
 
 class GKNN():
-    def __init__(self, point_path, edge_path=None, mesh_path=None, patch_size=2048, patch_num=30,add_noise=False):
+    def __init__(self, point_path, edge_path=None, mesh_path=None, patch_size=1024, patch_num=30,add_noise=False):
         self.name = point_path.split('/')[-1][:-4]
         self.data = np.loadtxt(point_path)
         self.data = self.data[:,0:3]
@@ -82,12 +85,13 @@ class GKNN():
 
         start = time.time()
         self.nbrs = spatial.cKDTree(self.data)
-        _,idxs = self.nbrs.query(self.data,k=10)
+        dists,idxs = self.nbrs.query(self.data,k=10,distance_upper_bound=0.2)
         # self.nbrs = NearestNeighbors(n_neighbors=10,algorithm='kd_tree').fit(self.data)
         # _,idxs = self.nbrs.kneighbors(self.data)
 
         self.graph=[]
-        for item in idxs:
+        for item,dist in zip(idxs,dists):
+            item = item[dist<0.05]
             self.graph.append(set(item))
         print "Build the graph cost %f second"%(time.time()-start)
 

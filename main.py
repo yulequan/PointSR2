@@ -1,19 +1,21 @@
 import argparse
 import os
-import sys
 import socket
+import sys
 import time
 from glob import glob
+
 import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
 import data_provider
 import model_utils
-import generator1_upsample2 as MODEL_GEN
+import generator1_upsample3 as MODEL_GEN
 from data_provider import NUM_EDGE, NUM_FACE
 from preprocessing_dataset.GKNN import GKNN
 from tf_ops.sampling.tf_sampling import farthest_point_sample
@@ -21,13 +23,13 @@ from utils import pc_util
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--phase', default='test', help='train or test [default: train]')
+parser.add_argument('--phase', default='train', help='train or test [default: train]')
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
-parser.add_argument('--log_dir', default='../model/NEWCAD_generator1_1k_updist_midpoint', help='Log dir [default: log]')
+parser.add_argument('--log_dir', default='../model/NEWCAD_generator1_1k_updist_midpoint_pad', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=1024,help='Point Number [1024/2048] [default: 1024]')
-parser.add_argument('--num_addpoint', type=int, default=512,help='Add Point Number [default: 600]')
+parser.add_argument('--num_addpoint', type=int, default=300,help='Add Point Number [default: 600]')
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
-parser.add_argument('--max_epoch', type=int, default=500, help='Epoch to run [default: 500]')
+parser.add_argument('--max_epoch', type=int, default=400, help='Epoch to run [default: 500]')
 parser.add_argument('--batch_size', type=int, default=12, help='Batch Size during training [default: 32]')
 parser.add_argument('--learning_rate', type=float, default=0.001)
 parser.add_argument('--assign_model_path',default=None, help='Pre-trained model path [default: None]')
@@ -76,7 +78,7 @@ class Network(object):
         self.pred_dist, self.pred_coord,self.pred_edgedist,self.pred_edgecoord = \
             MODEL_GEN.get_gen_model(self.pointclouds_input, is_training, scope=scope, bradius=1.0,
                                     num_addpoint=NUM_ADDPOINT,reuse=None, use_normal=False, use_bn=False,use_ibn=False,
-                                    bn_decay=bn_decay, up_ratio=UP_RATIO)
+                                    bn_decay=bn_decay, up_ratio=UP_RATIO,idx=self.pointclouds_idx)
 
         ###calculate the distance ground truth of upsample_point
         self.pointclouds_dist = model_utils.distance_point2edge(self.pred_coord,self.pointclouds_edge)
@@ -101,21 +103,14 @@ class Network(object):
         tf.summary.histogram('dist/gt', self.pointclouds_dist_truncated)
         tf.summary.histogram('dist/pred', self.pred_dist)
 
-        if False:
-            dist2_gt = tf.sqrt(tf.reduce_min(model_utils.distance_point2edge(self.pred, self.pointclouds_edge), axis=-1))
-            self.dist_loss2 = 1.0/(0.5+dist2_gt)*tf.pow(dist2_gt-self.pred_dist2,2)
-            self.dist_loss2 = 10*tf.reduce_mean(self.dist_mseloss / tf.expand_dims(self.pointclouds_radius, axis=-1))
-            tf.summary.scalar('loss/dist_loss2', self.dist_loss2)
-            tf.summary.histogram('dist2/gt', dist2_gt)
-            tf.summary.histogram('dist2/pred', self.pred_dist2)
-
         self.plane_loss = model_utils.distance_point2mesh(self.pred_coord, self.pointclouds_plane)
         self.plane_loss = 100*tf.reduce_mean(self.plane_loss / tf.expand_dims(self.pointclouds_radius**2, axis=-1))
         tf.summary.scalar('loss/plane_loss', self.plane_loss)
 
         self.edge_loss = model_utils.distance_point2edge(self.pred_edgecoord, self.pointclouds_edge)
         self.edge_loss = tf.reduce_min(self.edge_loss,axis=-1)
-        self.edge_loss = 10*tf.reduce_mean(self.edge_mask*self.edge_loss / tf.expand_dims(self.pointclouds_radius**2, axis=-1))
+        # self.edge_loss = 10*tf.reduce_mean(self.edge_mask*self.edge_loss / tf.expand_dims(self.pointclouds_radius**2, axis=-1))
+        self.edge_loss = 10*tf.reduce_sum(self.edge_mask*self.edge_loss/tf.expand_dims(self.pointclouds_radius**2, axis=-1))/tf.reduce_sum(self.edge_mask)
         tf.summary.histogram('loss/edge_mask', self.edge_mask)
         tf.summary.scalar('loss/edge_loss', self.edge_loss)
 
@@ -240,7 +235,7 @@ class Network(object):
         return pred,pred_edge,pred_edgedist
 
     def test_hierarical_prediction(self):
-        data_folder = '../../PointSR_data/CAD5/simu_noise_free'
+        data_folder = '../../PointSR_data/CAD5/simu_noise'
         phase = data_folder.split('/')[-1]
         save_path = os.path.join(MODEL_DIR, 'result/' + phase)
         self.saver = tf.train.Saver()
@@ -258,11 +253,11 @@ class Network(object):
             samples.sort()
             for point_path in samples:
                 print point_path
-                edge_path =  point_path.replace('simu_noise_free','mesh_edge')
-                edge_path = edge_path.replace('_noise_free.xyz','_edge.xyz')
+                edge_path =  point_path.replace('simu_noise','mesh_edge')
+                edge_path = edge_path.replace('_noise.xyz','_edge.xyz')
                 gm = GKNN(point_path, edge_path, patch_size=NUM_POINT, patch_num=30,add_noise=False)
                 points = tf.convert_to_tensor(np.expand_dims(gm.data,axis=0),dtype=tf.float32)
-                seed_num = int(gm.data.shape[0]/NUM_POINT*10)
+                seed_num = int(gm.data.shape[0]/NUM_POINT*5)
                 seeds = farthest_point_sample(seed_num,points).eval()[0]
                 # seeds = gm.get_idx(1000,random_ratio=1.0)
                 # seeds = np.random.permutation(len(gm.data))[:100]
@@ -271,7 +266,10 @@ class Network(object):
                 up_edgepoint_list = []
                 up_edgedist_list = []
                 for seed in tqdm(seeds):
-                    point = gm.geodesic_knn(seed, NUM_POINT)
+                    try:
+                        point = gm.geodesic_knn(seed, NUM_POINT)
+                    except:
+                        continue
                     #get the idx
                     idx1 = np.reshape(np.arange(NUM_POINT),[1,NUM_POINT])
                     idx0 = np.zeros((1,NUM_POINT))

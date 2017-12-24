@@ -1,8 +1,10 @@
 import os
 import time
+
 import numpy as np
 import tensorflow as tf
 from scipy import spatial
+
 from tf_ops.CD import tf_nndistance
 from tf_ops.emd import tf_auctionmatch
 from tf_ops.grouping.tf_grouping import query_ball_point, group_point, knn_point
@@ -36,7 +38,7 @@ def get_uniform_loss1(pred, nsample=20, radius=0.07, knn=False):
     dists = tf.reduce_sum(grouped_pred ** 2, axis=-1)
     val, idx = tf.nn.top_k(-dists, 5)
     val = val[:, :, 1:]  # remove the first one
-    val = tf.maximum(0.0, 0.001 + val)
+    val = tf.maximum(0.0, 0.001 + val) # dd/np.sqrt(n)
     uniform_loss = tf.reduce_mean(val)
 
     return 20 * uniform_loss

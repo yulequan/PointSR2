@@ -450,7 +450,7 @@ def find_edge(file):
         os.makedirs(dist_savepath)
     pc_path = './mesh_MC8k/'
     cmd = '../../third_party/EdgeSampling/build/EdgeSampling %s %s %s %s %s' % (file, edge_savepath, edgepoint_savepath, pc_path, dist_savepath)
-    cmd = '../../third_party/EdgeSampling/build/EdgeSampling %s %s %s' % (file, edge_savepath, edgepoint_savepath)
+    cmd = '../../third_party/EdgeSampling/build_local/EdgeSampling %s %s %s' % (file, edge_savepath, edgepoint_savepath)
     print cmd
     sts = Popen(cmd, shell=True).wait()
     if sts:
@@ -464,8 +464,8 @@ def handle_patch(filter_path=False):
     # for item in new_file_list:
     #     crop_patch_from_wholepointcloud(item)
 
-    pool = ThreadPool(3)
-    pool.map(crop_patch_from_wholepointcloud, new_file_list)
+    pool = ThreadPool(1)
+    pool.map(find_edge, new_file_list)
 
 def change_shapenet_name():
     data = json.load(open('taxonomy.json'))
@@ -483,11 +483,11 @@ def change_shapenet_name():
 
 
 if __name__ == '__main__':
-    os.chdir('/home/lqyu/server/proj49/PointSR_data/CAD5')
+    os.chdir('/home/lqyu/server/proj49/PointSR_data/CAD6')
     #change_shapenet_name()
     #preprocessing_data()
-    #handle_patch()
-    save_h5_2()
+    handle_patch()
+    #save_h5_2()
     #preprocessing_data_fn(None)
     #m = Mesh()
     #m.remove_redundent('/home/lqyu/server/proj49/third_party/chair.off', '/home/lqyu/server/proj49/third_party/chair_normalized.off')

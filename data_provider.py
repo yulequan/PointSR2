@@ -2,13 +2,15 @@ import Queue
 import os
 import threading
 import time
+
 import cv2
 import h5py
 import matplotlib
 import numpy as np
+
 from preprocessing_dataset.prepare_data import NUM_FACE, NUM_EDGE
 from utils import show3d
-from matplotlib import pyplot as plt
+
 
 def normalize_point_cloud(input):
     if len(input.shape)==2:
@@ -22,7 +24,7 @@ def normalize_point_cloud(input):
     return input, centroid,furthest_distance
 
 def load_patch_data(num_point=2048,norm=False,skip_rate = 1):
-    h5_filename = '../../PointSR_h5data/CAD5_noise.h5'
+    h5_filename = '../../PointSR_h5data/CAD5_mid_nonoise.h5'
     f = h5py.File(h5_filename)
     input = f['mc8k_input'][:]
     dist = f['mc8k_dist'][:]
@@ -298,8 +300,8 @@ class Fetcher(threading.Thread):
                 batch_data_input, batch_data_edge = shift_point_cloud_and_gt(batch_data_input, batch_data_edge,shift_range=0.2)
                 batch_data_clean = batch_data_input.copy()
 
-                batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.005, clip=0.01)
-                # batch_data_input = rotate_perturbation_point_cloud(batch_data_input, angle_sigma=0.03, angle_clip=0.09)
+                batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.02, clip=0.05)
+                batch_data_input = rotate_perturbation_point_cloud(batch_data_input, angle_sigma=0.03, angle_clip=0.09)
                 self.queue.put((batch_data_input, batch_data_clean, batch_data_dist, batch_data_edge,radius,point_order))
         return None
     def fetch(self):

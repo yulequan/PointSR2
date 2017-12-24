@@ -44,8 +44,8 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
         feat = tf.concat([up_l4_points, up_l3_points, up_l2_points, l1_points], axis=-1)
         feat = tf.expand_dims(feat, axis=2)
 
-        feat = tf.gather_nd(feat,idx[:,:num_point/2,:])
-        l0_xyz = tf.gather_nd(l0_xyz,idx[:,:num_point/2,:])
+        feat = tf.gather_nd(feat,idx[:,:int(num_point*3/4),:])
+        l0_xyz = tf.gather_nd(l0_xyz,idx[:,:int(num_point*3/4),:])
         #branch1: the new generate points
         with tf.variable_scope('up_layer', reuse=reuse):
             up_feat_list = []
