@@ -1,7 +1,9 @@
 import collections
 import json
+import multiprocessing
 import os
 import sys
+import time
 from glob import glob
 from multiprocessing.dummy import Pool as ThreadPool
 from random import shuffle
@@ -13,8 +15,11 @@ from tqdm import tqdm
 
 from GKNN import GKNN
 
-NUM_EDGE = 200
-NUM_FACE = 400
+NUM_EDGE = 100
+NUM_FACE = 700
+
+NUM_EDGE = 120
+NUM_FACE = 800
 
 class Mesh:
     def __init__(self):
@@ -256,7 +261,7 @@ def preprocessing_data():
     # file_list.sort()
     file_list = glob('mesh/*.off')
     print len(file_list)
-    pool = ThreadPool(8)
+    pool = ThreadPool(4)
     pool.map(preprocessing_data_fn, file_list)
 
 def read_face(path):
@@ -347,7 +352,7 @@ def save_h5():
     h5_fout.close()
 
 def save_h5_2():
-    file_list = glob('./patch_noise/*.xyz')
+    file_list = glob('./patch1k/*.xyz')
     file_list.sort()
     mc8k_inputs = []
     mc8k_dists = []
@@ -358,10 +363,10 @@ def save_h5_2():
     for item in tqdm(file_list):
         name = item.split('/')[-1]
         try:
-            data = np.loadtxt('patch_noise_dist/'+name )
-            edge = np.loadtxt('patch_noise_edge/'+name )
-            edge_point = np.loadtxt('patch_noise_edgepoint/'+name)
-            face = np.loadtxt('patch_noise_face/'+name)
+            data = np.loadtxt('patch1k_dist/'+name )
+            edge = np.loadtxt('patch1k_edge/'+name )
+            edge_point = np.loadtxt('patch1k_edgepoint/'+name)
+            face = np.loadtxt('patch1k_face/'+name)
         except:
             print name
             continue
@@ -376,7 +381,8 @@ def save_h5_2():
 
         face = np.reshape(face,[-1,9])
         l = face.shape[0]
-        idx = range(l) * (NUM_FACE / l) + list(np.random.permutation(l)[:NUM_FACE % l])
+        idx = range(l) * (NUM_FACE / l) + range(l)[:NUM_FACE % l]
+        # idx = range(l) * (NUM_FACE / l) + list(np.random.permutation(l)[:NUM_FACE % l])
         assert face[idx].shape[0]==NUM_FACE
         assert face[idx].shape[1]==9
         faces.append(face[idx])
@@ -388,14 +394,15 @@ def save_h5_2():
         idx = np.all(edge[:, 0:3] == edge[:, 3:6], axis=-1)
         edge = edge[idx==False]
         l = edge.shape[0]
-        idx = range(l)*(NUM_EDGE/l)+ list(np.random.permutation(l)[:NUM_EDGE%l])
+        idx = range(l)*(NUM_EDGE/l)+ range(l)[:NUM_EDGE%l]
+        # idx = range(l)*(NUM_EDGE/l)+ list(np.random.permutation(l)[:NUM_EDGE%l])
         edges.append(edge[idx])
         names.append(name)
 
     faces = np.asarray(faces)
     print len(names)
 
-    h5_filename = '../../PointSR_h5data/CAD5_noise.h5'
+    h5_filename = '../../PointSR_h5data/CAD1k_noise.h5'
     h5_fout = h5py.File(h5_filename)
     h5_fout.create_dataset('mc8k_input', data=mc8k_inputs, compression='gzip', compression_opts=4,dtype=np.float32)
     h5_fout.create_dataset('mc8k_dist', data=mc8k_dists, compression='gzip', compression_opts=4, dtype=np.float32)
@@ -422,19 +429,23 @@ def crop_patch(file):
     print cmd
     sts = Popen(cmd, shell=True).wait()
 
+ids = [6,6,6,6,7,7,7,7]
 def crop_patch_from_wholepointcloud(off_path):
+    current = multiprocessing.current_process()
+    id = int(current.name.split('-')[-1])
     print off_path
-    point_path = './simu_noise/' + off_path.split('/')[-1][:-4] + '_noise.xyz'
+
+    point_path = './new_simu_noise/' + off_path.split('/')[-1][:-4] + '_noise.xyz'
     edge_path = './mesh_edge/' + off_path.split('/')[-1][:-4] + '_edge.xyz'
-    save_root_path = './patch_noise'
-    gm = GKNN(point_path, edge_path, off_path, patch_size=1024, patch_num=50)
-    gm.crop_patch(save_root_path)
+    save_root_path = './patch1k'
+    gm = GKNN(point_path, edge_path, off_path, patch_size=1024, patch_num=50) #CAD is 50 annotated is 100
+    gm.crop_patch(save_root_path,id=ids[id-1],scale_ratio=2.5) #CAD 2.5 annotate 2
 
 def MC_sample(file):
-    save_path = './mesh_MC500k/'
+    save_path = './mesh_part_MC20k/'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-    cmd = '../../third_party/Sampling/build_local/MCSampling  512000 %s %s' % (file,save_path)
+    cmd = '../../third_party/Sampling/build_local/MCSampling  20000 %s %s' % (file,save_path)
     print cmd
     sts = Popen(cmd, shell=True).wait()
 
@@ -464,8 +475,8 @@ def handle_patch(filter_path=False):
     # for item in new_file_list:
     #     crop_patch_from_wholepointcloud(item)
 
-    pool = ThreadPool(1)
-    pool.map(find_edge, new_file_list)
+    pool = multiprocessing.Pool(8)
+    pool.map(crop_patch_from_wholepointcloud, new_file_list)
 
 def change_shapenet_name():
     data = json.load(open('taxonomy.json'))
@@ -483,11 +494,13 @@ def change_shapenet_name():
 
 
 if __name__ == '__main__':
-    os.chdir('/home/lqyu/server/proj49/PointSR_data/CAD6')
+    np.random.seed(int(time.time()))
+    os.chdir('../../PointSR_data/CAD_imperfect')
+    #os.chdir('/home/lqyu/server/proj49/PointSR_data/CAD_midpoint')
     #change_shapenet_name()
     #preprocessing_data()
-    handle_patch()
-    #save_h5_2()
+    # handle_patch()
+    save_h5_2()
     #preprocessing_data_fn(None)
     #m = Mesh()
     #m.remove_redundent('/home/lqyu/server/proj49/third_party/chair.off', '/home/lqyu/server/proj49/third_party/chair_normalized.off')

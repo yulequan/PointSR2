@@ -5,7 +5,9 @@ from utils.pointnet_util import pointnet_sa_module, pointnet_fp_module
 
 
 def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use_bn = False,use_ibn = False,
-                  use_normal=False,bn_decay=None, up_ratio = 4,num_addpoint=600,idx=None):
+                  use_normal=False,bn_decay=None, up_ratio = 4,num_addpoint=600,idx=None,is_crop=False):
+    print "Crop flag is ",is_crop
+
     with tf.variable_scope(scope,reuse=reuse) as sc:
         batch_size = point_cloud.get_shape()[0].value
         num_point = point_cloud.get_shape()[1].value
@@ -32,6 +34,10 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
                                                            is_training=is_training, bn_decay=bn_decay, scope='layer4')
 
         # Feature Propagation layers
+        if is_crop:
+            l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1 / 8), :])
+            l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1 / 8), :])
+
         up_l4_points = pointnet_fp_module(l0_xyz, l4_xyz, None, l4_points, [64], is_training, bn_decay,
                                        scope='fa_layer1',bn=use_bn,ibn = use_ibn)
 
@@ -43,38 +49,34 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
 
         feat = tf.concat([up_l4_points, up_l3_points, up_l2_points, l1_points], axis=-1)
         feat = tf.expand_dims(feat, axis=2)
+        if is_crop:
+            feat = tf.gather_nd(feat, idx[:, :int(num_point * 1 / 8), :])
 
-        feat = tf.gather_nd(feat,idx[:,:int(num_point*3/4),:])
-        l0_xyz = tf.gather_nd(l0_xyz,idx[:,:int(num_point*3/4),:])
+
         #branch1: the new generate points
-        with tf.variable_scope('up_layer', reuse=reuse):
-            up_feat_list = []
-            for i in range(up_ratio):
-                up_feat = tf_util2.conv2d(feat, 256, [1, 1],
-                                          padding='VALID', stride=[1, 1],
-                                          bn=False, is_training=is_training,
-                                          scope='conv1_%d' % (i), bn_decay=bn_decay)
-
-                up_feat = tf_util2.conv2d(up_feat, 128, [1, 1],
-                                          padding='VALID', stride=[1, 1],
-                                          bn=use_bn, is_training=is_training,
-                                          scope='conv2_%d' % (i),
-                                          bn_decay=bn_decay)
-                up_feat_list.append(up_feat)
-                up_feat = tf.concat(up_feat_list, axis=1)
-        up_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
+        up_feat = tf_util2.conv2d(feat, 256, [1, 1],
                                 padding='VALID', stride=[1, 1],
                                 bn=False, is_training=is_training,
                                 scope='coord_fc1', bn_decay=bn_decay)
+
+        up_feat = tf_util2.conv2d(up_feat, 128, [1, 1],
+                                padding='VALID', stride=[1, 1],
+                                bn=False, is_training=is_training,
+                                scope='coord_fc2', bn_decay=bn_decay)
+
+        up_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
+                                padding='VALID', stride=[1, 1],
+                                bn=False, is_training=is_training,
+                                scope='coord_fc3', bn_decay=bn_decay)
         r_coord = tf_util2.conv2d(up_feat, 3, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
-                               scope='coord_fc2', bn_decay=bn_decay,
+                               scope='coord_fc4', bn_decay=bn_decay,
                                activation_fn=None, weight_decay=0.0)
-        coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:,:,0:3],(1,up_ratio,1))
+        coord = tf.squeeze(r_coord, [2]) + l0_xyz[:,:,0:3]
 
         #branch2: dist to the edge
-        combined_feat = tf.concat((tf.tile(feat,(1,up_ratio,1,1)),up_feat),axis=-1)
+        combined_feat = tf.concat((feat,up_feat),axis=-1)
         dist = tf_util2.conv2d(combined_feat, 64, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
@@ -96,9 +98,4 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
         idx0 = tf.tile(tf.reshape(tf.range(batch_size),(batch_size,1)),(1,num_addpoint))
         idx = tf.stack([idx0,idx1],axis=-1)
 
-        #gather the edge
-        edge_coord = tf.gather_nd(coord,idx)
-        edge_dist = tf.gather_nd(dist,idx)
-        # edge_dist = -edge_dist
-
-    return dist, coord, edge_dist, edge_coord
+    return dist, coord, idx

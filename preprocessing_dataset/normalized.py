@@ -61,10 +61,10 @@ class Mesh:
 
         #normalize vertices
         self.verts = np.asarray(self.verts)
-        centroid = np.mean(self.verts,axis=0,keepdims=True)
-        self.verts = self.verts-centroid
-        furthest_dist = np.amax(np.sqrt(np.sum(self.verts*self.verts,axis=1)))
-        self.verts = self.verts/furthest_dist
+        self.centroid = np.mean(self.verts,axis=0,keepdims=True)
+        self.verts = self.verts-self.centroid
+        self.furthest_dist = np.amax(np.sqrt(np.sum(self.verts*self.verts,axis=1)))
+        self.verts = self.verts/self.furthest_dist
 
 
     def write2OffFile(self,path):

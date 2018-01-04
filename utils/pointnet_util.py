@@ -37,10 +37,11 @@ def sample_and_group(npoint, radius, nsample, xyz, points, tnet_spec=None, knn=F
     else:
         if np.isscalar(radius):
             idx, pts_cnt = query_ball_point(radius, nsample, xyz, new_xyz)
+            tf.summary.histogram('pts_cnt', pts_cnt)
         else:
             idx_list = []
             for radius_one, xyz_one, new_xyz_one in zip(tf.unstack(radius,axis=0), tf.unstack(xyz, axis=0),tf.unstack(new_xyz, axis=0)):
-                idx_one, _ = query_ball_point(radius_one, nsample, tf.expand_dims(xyz_one, axis=0), tf.expand_dims(new_xyz_one, axis=0))
+                idx_one, pts_cnt = query_ball_point(radius_one, nsample, tf.expand_dims(xyz_one, axis=0), tf.expand_dims(new_xyz_one, axis=0))
                 idx_list.append(idx_one)
             idx = tf.stack(idx_list, axis=0)
             idx = tf.squeeze(idx, axis=1)

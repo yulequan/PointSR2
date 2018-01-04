@@ -8,9 +8,20 @@ import h5py
 import matplotlib
 import numpy as np
 
-from preprocessing_dataset.prepare_data import NUM_FACE, NUM_EDGE
 from utils import show3d
 
+NUM_EDGE=200
+NUM_FACE=400
+
+NUM_EDGE = 120
+NUM_FACE = 800
+
+def get_inverse_index(num):
+    idx = np.random.permutation(num)
+    new_idx = np.zeros(num).astype(np.int64)
+    for id,item in enumerate(idx):
+        new_idx[item]=id
+    return idx, new_idx
 
 def normalize_point_cloud(input):
     if len(input.shape)==2:
@@ -23,8 +34,8 @@ def normalize_point_cloud(input):
     input = input / furthest_distance
     return input, centroid,furthest_distance
 
-def load_patch_data(num_point=2048,norm=False,skip_rate = 1):
-    h5_filename = '../../PointSR_h5data/CAD5_mid_nonoise.h5'
+def load_patch_data(skip_rate = 1):
+    h5_filename = '../../PointSR_h5data/Virtualscan1k_noise.h5'
     f = h5py.File(h5_filename)
     input = f['mc8k_input'][:]
     dist = f['mc8k_dist'][:]
@@ -39,10 +50,33 @@ def load_patch_data(num_point=2048,norm=False,skip_rate = 1):
     name = f['name'][:]
     assert len(input) == len(edge)
 
+    # ####
+    h5_filename = '../../PointSR_h5data/CAD1k_noise.h5'
+    f = h5py.File(h5_filename)
+    input1 = f['mc8k_input'][:]
+    dist1 = f['mc8k_dist'][:]
+    edge1 = f['edge'][:]
+    edgepoint1 = f['edge_points'][:]
+    face1 = f['face'][:]
+    assert edge1.shape[1] == NUM_EDGE
+    assert face1.shape[1] == NUM_FACE
+    edge1 = np.reshape(edge1, (-1, NUM_EDGE * 2, 3))
+    face1 = np.reshape(face1, (-1, NUM_FACE * 3, 3))
+    edge1 = np.concatenate([edge1, face1, edgepoint1], axis=1)
+    name1 = f['name'][:]
+    assert len(input1) == len(edge1)
+    input = np.concatenate([input,input1],axis=0)
+    dist  = np.concatenate([dist,dist1],axis=0)
+    edge  = np.concatenate([edge,edge1],axis=0)
+    name  = name + name1
+    # ######
+
+
+
     data_radius = np.ones(shape=(len(input)))
     centroid = np.mean(input[:,:,0:3], axis=1, keepdims=True)
     input[:,:,0:3] = input[:,:,0:3] - centroid
-    distance = np.sqrt(np.sqrt(np.sum(input[:,:,0:3] ** 2, axis=-1)))
+    distance = np.sqrt(np.sum(input[:,:,0:3] ** 2, axis=-1))
     furthest_distance = np.amax(distance,axis=1,keepdims=True)
     input[:, :, 0:3] = input[:,:,0:3] / np.expand_dims(furthest_distance,axis=-1)
     dist = dist/furthest_distance
@@ -226,14 +260,13 @@ def nonuniform_sampling(num = 4096, sample_num = 1024):
     return list(sample)
 
 class Fetcher(threading.Thread):
-    def __init__(self, batch_size, num_point, use_norm):
+    def __init__(self, batch_size, num_point):
         super(Fetcher,self).__init__()
         self.queue = Queue.Queue(40)
         self.stopped = False
         self.batch_size = batch_size
         self.num_point = num_point
-        self.use_norm = use_norm
-        input, dist, edge, data_radius, name = load_patch_data(num_point, use_norm, skip_rate=1)
+        input, dist, edge, data_radius, name = load_patch_data(skip_rate=1)
 
         # shuffle the order of points
         self.point_order = np.zeros([input.shape[0], input.shape[1]],np.int32)
@@ -246,11 +279,6 @@ class Fetcher(threading.Thread):
                 new_idx[item]=index
             self.point_order[i]= new_idx
         self.point_order = self.point_order
-        ##re-order the points according to the distance to original point
-        # idx1 = np.argsort(distance,axis=1)
-        # idx0 = np.tile(np.arange(len(input)).reshape([input.shape[0],1]),[1,input.shape[1]])
-        # input = input[idx0,idx1]
-        # dist = dist[idx0,idx1]
 
         self.input_data = input
         self.dist_data = dist
@@ -260,7 +288,6 @@ class Fetcher(threading.Thread):
         self.sample_cnt = self.input_data.shape[0]
         self.num_batches = self.sample_cnt//self.batch_size
         print "NUM_BATCH is %s"%(self.num_batches)
-        print self.use_norm
 
     def run(self):
         while not self.stopped:
@@ -290,6 +317,10 @@ class Fetcher(threading.Thread):
                 #     idx = np.random.permutation(batch_data_input.shape[1])
                 #     batch_data_input[i] = batch_data_input[i][idx]
                 #     batch_data_dist[i] = batch_data_dist[i][idx]
+                # new_idx = np.zeros((input.shape[1]))
+                # for index, item in enumerate(idx):
+                #     new_idx[item] = index
+                #
 
                 #data augmentation(rotate,scale, shift)
                 batch_data_input, batch_data_edge = rotate_point_cloud_and_gt(batch_data_input,batch_data_edge)
@@ -300,8 +331,10 @@ class Fetcher(threading.Thread):
                 batch_data_input, batch_data_edge = shift_point_cloud_and_gt(batch_data_input, batch_data_edge,shift_range=0.2)
                 batch_data_clean = batch_data_input.copy()
 
-                batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.02, clip=0.05)
+                # batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.02, clip=0.05)
+                batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.005, clip=0.015)
                 batch_data_input = rotate_perturbation_point_cloud(batch_data_input, angle_sigma=0.03, angle_clip=0.09)
+
                 self.queue.put((batch_data_input, batch_data_clean, batch_data_dist, batch_data_edge,radius,point_order))
         return None
     def fetch(self):
@@ -317,7 +350,7 @@ class Fetcher(threading.Thread):
         print "Remove all queue data"
 
 if __name__ == '__main__':
-    load_patch_data(norm=True)
+    load_patch_data()
 
     folder = '/home/lqyu/workspace/PointSR/perfect_models'
     fetchworker = Fetcher(folder)

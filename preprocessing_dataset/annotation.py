@@ -1,7 +1,10 @@
+import os
 from glob import glob
 from subprocess import Popen
 
 import numpy as np
+
+from normalized import Mesh
 
 
 def read_edge_from_offline(path):
@@ -28,12 +31,45 @@ def read_edge_from_offline(path):
                 for iter in np.arange(0, 1.01, 0.01):
                     point = s+iter*(e-s)
                     points.append(point)
-
     edges = np.asarray(edges)
     points = np.asarray(points)
+    return edges, points
     np.savetxt(name+'_edge.xyz',edges,fmt='%.6f')
     np.savetxt(name+'_edgepoint.xyz', points, fmt='%.6f')
 
+def preprocessing_annotation_file(sharpedge_path):
+    name = sharpedge_path.split('/')[-1][:-16]
+    obj_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/'+name+"_model.obj"
+    off_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh/'+name+".off"
+
+    softedge_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/'+name+"_soft_edges.obj"
+
+
+    #convert obj to off
+    cmd = '''meshlabserver -i '%s' -o '%s' '''%(obj_path,off_path)
+    print cmd
+    sts = Popen(cmd,shell=True).wait()
+    if sts:
+        print "Cannot convert %s"%(obj_path)
+    m = Mesh()
+    m.loadFromOffFile(off_path)
+    m.write2OffFile(off_path)
+
+    ##
+    sharpedges, sharppoints = read_edge_from_offline(sharpedge_path)
+    sharpedges[:,0:3] = (sharpedges[:,0:3]-m.centroid)/m.furthest_dist
+    sharpedges[:,3:6] = (sharpedges[:,3:6]-m.centroid)/m.furthest_dist
+    sharppoints=(sharppoints-m.centroid)/m.furthest_dist
+    np.savetxt('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edge/'+name+'_sharpedge.xyz',sharpedges,fmt='%.6f')
+    np.savetxt('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edgepoint/' + name + '_sharpedgepoint.xyz', sharppoints, fmt='%.6f')
+
+    if os.path.exists(softedge_path):
+        softedges, softpoints = read_edge_from_offline(softedge_path)
+        softedges[:,0:3] = (softedges[:, 0:3] - m.centroid) / m.furthest_dist
+        softedges[:, 3:6] = (softedges[:,3:6] - m.centroid) / m.furthest_dist
+        softpoints = (softpoints - m.centroid) / m.furthest_dist
+        np.savetxt('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edge/' + name + '_softedge.xyz', softedges, fmt='%.6f')
+        np.savetxt('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edgepoint/' + name + '_softedgepoint.xyz', softpoints, fmt='%.6f')
 
 def convertX2off():
     file1 = glob('/home/lqyu/models/zip/*.zip')
@@ -47,11 +83,23 @@ def convertX2off():
         sts = Popen(cmd1, shell=True).wait()
         sts = Popen(cmd2, shell=True).wait()
 
+def merge_soft_and_sharp_edge():
+    file = glob('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edge/*_sharpedge.xyz')
+    for item in file:
+        data1 = np.loadtxt(item)
+        softedge_path = item.replace('sharpedge','softedge')
+        if os.path.exists(softedge_path):
+            data2 = np.loadtxt(softedge_path)
+            data1 = np.concatenate([data1,data2])
+        edge_path = item.replace('_sharpedge','_edge')
+        np.savetxt(edge_path,data1,fmt='%.6f')
+
 if __name__ == '__main__':
     #convertX2off()
-
-    file = glob('//home/lqyu/server/proj49/annotation/*_edges.obj')
-    for item in file:
-         read_edge_from_offline(item)
+    merge_soft_and_sharp_edge()
+    # file = glob('/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/*_sharp_edges.obj')
+    # print len(file)
+    # for item in file:
+    #     preprocessing_annotation_file(item)
 
 

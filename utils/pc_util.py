@@ -189,9 +189,9 @@ def point_cloud_three_views(points,diameter=5):
     # img3 = draw_point_cloud(points, xrot=0/180.0*np.pi,  yrot=-90/180.0*np.pi, zrot=0/180.0*np.pi,diameter=diameter)
     # image_large = np.concatenate([img1, img2, img3], 1)
     points[np.isnan(points)]=0.5
-    img1 = draw_point_cloud(points, zrot=110 / 180.0 * np.pi, xrot=135 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter)
-    img2 = draw_point_cloud(points, zrot=70 / 180.0 * np.pi, xrot=135 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter)
-    img3 = draw_point_cloud(points, zrot=180.0 / 180.0 * np.pi, xrot=90 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter)
+    img1 = draw_point_cloud(points, zrot=110 / 180.0 * np.pi, xrot=135 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter,normalize=True)
+    img2 = draw_point_cloud(points, zrot=70 / 180.0 * np.pi, xrot=135 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter,normalize=True)
+    img3 = draw_point_cloud(points, zrot=180.0 / 180.0 * np.pi, xrot=90 / 180.0 * np.pi, yrot=0 / 180.0 * np.pi,diameter=diameter,normalize=True)
     image_large = np.concatenate([img1, img2, img3], 1)
 
     return image_large

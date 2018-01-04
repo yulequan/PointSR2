@@ -1,10 +1,6 @@
-import os
-import time
 from glob import glob
 from multiprocessing.dummy import Pool as ThreadPool
 from subprocess import Popen
-
-import data_provider
 
 
 def function2():
@@ -134,18 +130,44 @@ def fn2(file):
     sts = Popen(cmd, shell=True).wait()
 
 if __name__ == '__main__':
-    import model_utils
-    file = glob('/home/lqyu/server/proj49/PointSR_data/CAD3/patch/*.xyz')
-    for item in file[::10]:
-        input = np.loadtxt(item)
-        input,_,_ = data_provider.normalize_point_cloud(input)
-        # dist = np.sum(input*input,axis=1)
-        # idx = np.argsort(dist)
-        # input = input[idx]
-        dist1 = np.linspace(0,1.0,input.shape[0]/2)
-        dist2 = np.zeros(input.shape[0]/2)
-        dist = np.concatenate([dist1,dist2])
-        rgba = data_provider.convert_dist2rgba(dist, scale=1)
-        path = '/home/lqyu/server/proj49/annotation/patch_color/'+item.split('/')[-1][:-4]+".ply"
-        data_provider.save_ply(path, np.hstack((input, rgba, dist.reshape(-1, 1))))
+    from igraph import *
+    from random import randint
+    import time
+
+    graph = Graph.Barabasi(1000, 10)
+    t1 = time.time()
+    for _ in xrange(100):
+        v1 = randint(0, graph.vcount() - 1)
+        v2 = randint(0, graph.vcount() - 1)
+        sp = graph.get_shortest_paths(v1, None)
+        print sp
+        print 'aa'
+    t2 = time.time()
+    print (t2 - t1) / 100
+
+    #
+    # from sklearn.decomposition import PCA
+    # from scipy import spatial
+    # from tqdm import tqdm
+    # pca = PCA(n_components=1)
+    # data = np.loadtxt('/home/lqyu/server/proj49/PointSR2/model/NEWCAD_generator1_1k_updist_midpoint/result/CAD_imperfect_simu_noise/17_noise_predictedge.ply',
+    #                   skiprows=15)
+    # data = data[:,0:3]
+    # data = np.unique(data,axis=0)
+    # print len(data)
+    # for i in xrange(4):
+    #     tree = spatial.cKDTree(data)
+    #     dist, idx = tree.query(data, k=20)
+    #     points = data[idx]
+    #     new_datas = []
+    #     for item in tqdm(points):
+    #         pca.fit(item)
+    #         newdata = pca.transform(item)*pca.explained_variance_+pca.mean_
+    #         new_datas.append(newdata[0])
+    #     data = np.asarray(new_datas)
+    #     np.savetxt('/home/lqyu/server/proj49/PointSR2/model/NEWCAD_generator1_1k_updist_midpoint/result/17_%d.xyz'%i, data,fmt='%.6f')
+
+
+
+
 

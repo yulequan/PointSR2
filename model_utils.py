@@ -21,7 +21,7 @@ def pre_load_checkpoint(checkpoint_dir):
         return 0, None
 
 
-def get_uniform_loss1(pred, nsample=20, radius=0.07, knn=False):
+def get_uniform_loss1_orthdistance(pred, normal, nsample=20, radius=0.10, knn=False, numpoint=4096):
     # pred: (batch_size, npoint,3)
     if knn:
         with tf.device('/gpu:1'):
@@ -32,13 +32,49 @@ def get_uniform_loss1(pred, nsample=20, radius=0.07, knn=False):
     tf.summary.histogram('smooth/unque_index', pts_cnt)
 
     grouped_pred = group_point(pred, idx)  # (batch_size, npoint, nsample, 3)
+    offset = grouped_pred-tf.expand_dims(pred, 2)
+    normal = tf.expand_dims(normal,axis=2)
+    dists = offset -tf.reduce_sum(normal*offset,axis=-1,keep_dims=True)*normal
+
+    dists = tf.reduce_sum(dists ** 2, axis=-1)
+    val, idx = tf.nn.top_k(-dists, 5)
+    val = val[:, :, 1:]  # remove the first one
+
+    h = (2.0 / np.sqrt(numpoint)) ** 2
+    h = 0.001
+    print "h is ", h
+
+    val = tf.maximum(0.0, h + val)  # dd/np.sqrt(n)
+    uniform_loss = tf.reduce_mean(val)
+
+    return 20 * uniform_loss
+
+
+
+def get_uniform_loss1(pred, nsample=20, radius=0.10, knn=False,numpoint=4096):
+    # pred: (batch_size, npoint,3)
+    if knn:
+        with tf.device('/gpu:1'):
+            _, idx = knn_point(nsample, pred, pred)
+        pts_cnt = tf.constant(nsample, shape=(30, 1024))
+    else:
+        idx, pts_cnt = query_ball_point(radius, nsample, pred, pred)
+    tf.summary.histogram('smooth/unque_index', pts_cnt)
+
+
+    grouped_pred = group_point(pred, idx)  # (batch_size, npoint, nsample, 3)
     grouped_pred -= tf.expand_dims(pred, 2)
 
     ##get the uniform loss
     dists = tf.reduce_sum(grouped_pred ** 2, axis=-1)
     val, idx = tf.nn.top_k(-dists, 5)
     val = val[:, :, 1:]  # remove the first one
-    val = tf.maximum(0.0, 0.001 + val) # dd/np.sqrt(n)
+
+    h = (2.0/np.sqrt(numpoint))**2
+    h = 0.001
+    print "h is ",h
+
+    val = tf.maximum(0.0, h + val) # dd/np.sqrt(n)
     uniform_loss = tf.reduce_mean(val)
 
     return 20 * uniform_loss
@@ -382,8 +418,6 @@ def distance_point2mesh(points, faces):
     dista = tf.where(s<0,tf.where(t<0,dist4,dist3),tf.where(t<0,dist5,dist0))
     distb = tf.where(s<0, dist2, tf.where(t<0,dist6,dist1))
     dist = tf.where(s+t<=det, dista, distb)
-    dist = tf.reduce_min(dist,axis=2)
-    # dist = tf.where(tf.is_nan(dist),tf.zeros_like(dist),dist)
     return dist
 
 def distance_point2mesh_np(points, faces):
