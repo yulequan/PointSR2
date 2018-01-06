@@ -35,7 +35,7 @@ def normalize_point_cloud(input):
     return input, centroid,furthest_distance
 
 def load_patch_data(skip_rate = 1):
-    h5_filename = '../../PointSR_h5data/Virtualscan1k_noise.h5'
+    h5_filename = '../../PointSR_h5data/Virtualscan1k_halfnoise.h5'
     f = h5py.File(h5_filename)
     input = f['mc8k_input'][:]
     dist = f['mc8k_dist'][:]
@@ -51,7 +51,7 @@ def load_patch_data(skip_rate = 1):
     assert len(input) == len(edge)
 
     # ####
-    h5_filename = '../../PointSR_h5data/CAD1k_noise.h5'
+    h5_filename = '../../PointSR_h5data/CAD1k_halfnoise.h5'
     f = h5py.File(h5_filename)
     input1 = f['mc8k_input'][:]
     dist1 = f['mc8k_dist'][:]
@@ -68,10 +68,8 @@ def load_patch_data(skip_rate = 1):
     input = np.concatenate([input,input1],axis=0)
     dist  = np.concatenate([dist,dist1],axis=0)
     edge  = np.concatenate([edge,edge1],axis=0)
-    name  = name + name1
+    name = np.concatenate([name,name1])
     # ######
-
-
 
     data_radius = np.ones(shape=(len(input)))
     centroid = np.mean(input[:,:,0:3], axis=1, keepdims=True)
@@ -270,15 +268,15 @@ class Fetcher(threading.Thread):
 
         # shuffle the order of points
         self.point_order = np.zeros([input.shape[0], input.shape[1]],np.int32)
-        for i in xrange(input.shape[0]):
-            idx = np.random.permutation(input.shape[1])
-            input[i] = input[i][idx]
-            dist[i] = dist[i][idx]
-            new_idx = np.zeros((input.shape[1]))
-            for index,item in enumerate(idx):
-                new_idx[item]=index
-            self.point_order[i]= new_idx
-        self.point_order = self.point_order
+        # for i in xrange(input.shape[0]):
+        #     idx = np.random.permutation(input.shape[1])
+        #     input[i] = input[i][idx]
+        #     dist[i] = dist[i][idx]
+        #     new_idx = np.zeros((input.shape[1]))
+        #     for index,item in enumerate(idx):
+        #         new_idx[item]=index
+        #     self.point_order[i]= new_idx
+        # self.point_order = self.point_order
 
         self.input_data = input
         self.dist_data = dist
@@ -311,16 +309,12 @@ class Fetcher(threading.Thread):
                 point_order = self.point_order[start_idx:end_idx].copy()
                 point_order0 = np.tile(np.reshape(np.arange(self.batch_size),(self.batch_size,1)),(1,point_order.shape[1]))
                 point_order = np.stack([point_order0,point_order],axis=-1)
-
                 # #shuffle the order of points
-                # for i in xrange(batch_data_input.shape[0]):
-                #     idx = np.random.permutation(batch_data_input.shape[1])
-                #     batch_data_input[i] = batch_data_input[i][idx]
-                #     batch_data_dist[i] = batch_data_dist[i][idx]
-                # new_idx = np.zeros((input.shape[1]))
-                # for index, item in enumerate(idx):
-                #     new_idx[item] = index
-                #
+                for i in xrange(batch_data_input.shape[0]):
+                    idx,new_idx = get_inverse_index(batch_data_input.shape[1])
+                    batch_data_input[i]=batch_data_input[i][idx]
+                    batch_data_dist[i]= batch_data_dist[i][idx]
+                    point_order[i,:,1]=new_idx
 
                 #data augmentation(rotate,scale, shift)
                 batch_data_input, batch_data_edge = rotate_point_cloud_and_gt(batch_data_input,batch_data_edge)

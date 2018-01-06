@@ -25,17 +25,16 @@ def input_transform_net(point_cloud, is_training, bn_decay=None, K=3):
                          padding='VALID', stride=[1,1],
                          bn=False, is_training=is_training,
                          scope='tconv2', bn_decay=bn_decay)
-    net = tf_util2.conv2d(net, 1024, [1,1],
+    net = tf_util2.conv2d(net, 512, [1,1],
                          padding='VALID', stride=[1,1],
                          bn=False, is_training=is_training,
                          scope='tconv3', bn_decay=bn_decay)
-    net = tf_util2.max_pool2d(net, [num_point,1],
-                             padding='VALID', scope='tmaxpool')
+    net = tf.layers.max_pooling2d(net, [num_point,1], (1,1), padding='VALID', name='tmaxpool')
 
     net = tf.reshape(net, [batch_size, -1])
-    net = tf_util2.fully_connected(net, 512, bn=True, is_training=is_training,
-                                  scope='tfc1', bn_decay=bn_decay)
-    net = tf_util2.fully_connected(net, 256, bn=True, is_training=is_training,
+    # net = tf_util2.fully_connected(net, 512, bn=False, is_training=is_training,
+    #                               scope='tfc1', bn_decay=bn_decay)
+    net = tf_util2.fully_connected(net, 256, bn=False, is_training=is_training,
                                   scope='tfc2', bn_decay=bn_decay)
 
     with tf.variable_scope('transform_XYZ') as sc:
@@ -73,13 +72,13 @@ def feature_transform_net(inputs, is_training, bn_decay=None, K=64):
                          padding='VALID', stride=[1,1],
                          bn=False, is_training=is_training,
                          scope='tconv3', bn_decay=bn_decay)
-    net = tf_util2.max_pool2d(net, [num_point,1],
-                             padding='VALID', scope='tmaxpool')
+    net = tf.layers.max_pooling2d(net, [num_point,1],[1,1],padding='VALID', name='tmaxpool')
+
 
     net = tf.reshape(net, [batch_size, -1])
-    net = tf_util2.fully_connected(net, 512, bn=True, is_training=is_training,
+    net = tf_util2.fully_connected(net, 512, bn=False, is_training=is_training,
                                   scope='tfc1', bn_decay=bn_decay)
-    net = tf_util2.fully_connected(net, 256, bn=True, is_training=is_training,
+    net = tf_util2.fully_connected(net, 256, bn=False, is_training=is_training,
                                   scope='tfc2', bn_decay=bn_decay)
 
     with tf.variable_scope('transform_feat') as sc:

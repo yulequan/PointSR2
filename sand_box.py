@@ -131,41 +131,43 @@ def fn2(file):
 
 if __name__ == '__main__':
     from igraph import *
-    from random import randint
     import time
 
-    graph = Graph.Barabasi(1000, 10)
-    t1 = time.time()
-    for _ in xrange(100):
-        v1 = randint(0, graph.vcount() - 1)
-        v2 = randint(0, graph.vcount() - 1)
-        sp = graph.get_shortest_paths(v1, None)
-        print sp
-        print 'aa'
-    t2 = time.time()
-    print (t2 - t1) / 100
+    # graph = Graph.Barabasi(1000, 10)
+    # t1 = time.time()
+    # for _ in xrange(100):
+    #     v1 = randint(0, graph.vcount() - 1)
+    #     v2 = randint(0, graph.vcount() - 1)
+    #     sp = graph.get_shortest_paths(v1, None)
+    #     print sp
+    #     print 'aa'
+    # t2 = time.time()
+    # print (t2 - t1) / 100
 
-    #
-    # from sklearn.decomposition import PCA
-    # from scipy import spatial
-    # from tqdm import tqdm
-    # pca = PCA(n_components=1)
-    # data = np.loadtxt('/home/lqyu/server/proj49/PointSR2/model/NEWCAD_generator1_1k_updist_midpoint/result/CAD_imperfect_simu_noise/17_noise_predictedge.ply',
-    #                   skiprows=15)
-    # data = data[:,0:3]
-    # data = np.unique(data,axis=0)
-    # print len(data)
-    # for i in xrange(4):
-    #     tree = spatial.cKDTree(data)
-    #     dist, idx = tree.query(data, k=20)
-    #     points = data[idx]
-    #     new_datas = []
-    #     for item in tqdm(points):
-    #         pca.fit(item)
-    #         newdata = pca.transform(item)*pca.explained_variance_+pca.mean_
-    #         new_datas.append(newdata[0])
-    #     data = np.asarray(new_datas)
-    #     np.savetxt('/home/lqyu/server/proj49/PointSR2/model/NEWCAD_generator1_1k_updist_midpoint/result/17_%d.xyz'%i, data,fmt='%.6f')
+
+    from sklearn.decomposition import PCA
+    from scipy import spatial
+    from tqdm import tqdm
+    pca = PCA(n_components=1)
+    data = np.loadtxt('/home/lqyu/server/proj49/PointSR2/model/NEWVirtualscan_generator1_1k_sharpmix_crop_l2/result/virtualscan_chair_test1/chair1_noise_outputedge.ply',
+                      skiprows=15)
+    data = data[:,0:3]
+    data = np.unique(data,axis=0)
+    print len(data)
+    for i in xrange(1):
+        tree = spatial.cKDTree(data)
+        dist, idx = tree.query(data, k=10)
+        idx = tree.query_ball_tree(tree,r=0.01)
+        # points = data[idx]
+        new_datas = []
+        # for dd in tqdm(points):
+        for item in tqdm(idx):
+            dd = data[item]
+            pca.fit(dd)
+            newdata = pca.transform(dd)*pca.components_+pca.mean_
+            new_datas.append(newdata[0])
+        data = np.asarray(new_datas)
+        np.savetxt('/home/lqyu/server/proj49/PointSR2/model/NEWVirtualscan_generator1_1k_sharpmix_crop_l2/result/17_%d.xyz'%i, data,fmt='%.6f')
 
 
 

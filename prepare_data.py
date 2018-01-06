@@ -352,7 +352,7 @@ def save_h5():
     h5_fout.close()
 
 def save_h5_2():
-    file_list = glob('./patch1k/*.xyz')
+    file_list = glob('./patch1k_halfnoise/*.xyz')
     file_list.sort()
     mc8k_inputs = []
     mc8k_dists = []
@@ -363,10 +363,10 @@ def save_h5_2():
     for item in tqdm(file_list):
         name = item.split('/')[-1]
         try:
-            data = np.loadtxt('patch1k_dist/'+name )
-            edge = np.loadtxt('patch1k_edge/'+name )
-            edge_point = np.loadtxt('patch1k_edgepoint/'+name)
-            face = np.loadtxt('patch1k_face/'+name)
+            data = np.loadtxt('patch1k_halfnoise_dist/'+name )
+            edge = np.loadtxt('patch1k_halfnoise_edge/'+name )
+            edge_point = np.loadtxt('patch1k_halfnoise_edgepoint/'+name)
+            face = np.loadtxt('patch1k_halfnoise_face/'+name)
         except:
             print name
             continue
@@ -402,7 +402,7 @@ def save_h5_2():
     faces = np.asarray(faces)
     print len(names)
 
-    h5_filename = '../../PointSR_h5data/CAD1k_noise.h5'
+    h5_filename = '../../PointSR_h5data/CAD1k_halfnoise.h5'
     h5_fout = h5py.File(h5_filename)
     h5_fout.create_dataset('mc8k_input', data=mc8k_inputs, compression='gzip', compression_opts=4,dtype=np.float32)
     h5_fout.create_dataset('mc8k_dist', data=mc8k_dists, compression='gzip', compression_opts=4, dtype=np.float32)
@@ -429,17 +429,17 @@ def crop_patch(file):
     print cmd
     sts = Popen(cmd, shell=True).wait()
 
-ids = [6,6,6,6,7,7,7,7]
+ids = [0,0,0,0,1,1,1,1,3,3,3,3]
 def crop_patch_from_wholepointcloud(off_path):
     current = multiprocessing.current_process()
     id = int(current.name.split('-')[-1])
     print off_path
 
-    point_path = './new_simu_noise/' + off_path.split('/')[-1][:-4] + '_noise.xyz'
+    point_path = './new_simu_noise/' + off_path.split('/')[-1][:-4] + '_noise_half.xyz'
     edge_path = './mesh_edge/' + off_path.split('/')[-1][:-4] + '_edge.xyz'
-    save_root_path = './patch1k'
-    gm = GKNN(point_path, edge_path, off_path, patch_size=1024, patch_num=50) #CAD is 50 annotated is 100
-    gm.crop_patch(save_root_path,id=ids[id-1],scale_ratio=2.5) #CAD 2.5 annotate 2
+    save_root_path = './patch1k_halfnoise'
+    gm = GKNN(point_path, edge_path, off_path, patch_size=1024, patch_num=250) #CAD is 250 annotated is 500
+    gm.crop_patch(save_root_path,id=ids[id-1],scale_ratio=2) #CAD 2.5 annotate 2
 
 def MC_sample(file):
     save_path = './mesh_part_MC20k/'
@@ -475,7 +475,7 @@ def handle_patch(filter_path=False):
     # for item in new_file_list:
     #     crop_patch_from_wholepointcloud(item)
 
-    pool = multiprocessing.Pool(8)
+    pool = multiprocessing.Pool(12)
     pool.map(crop_patch_from_wholepointcloud, new_file_list)
 
 def change_shapenet_name():
@@ -496,9 +496,9 @@ def change_shapenet_name():
 if __name__ == '__main__':
     np.random.seed(int(time.time()))
     os.chdir('../../PointSR_data/CAD_imperfect')
-    #os.chdir('/home/lqyu/server/proj49/PointSR_data/CAD_midpoint')
+    # os.chdir('../../PointSR_data/virtualscan')
     #change_shapenet_name()
-    #preprocessing_data()
+    # preprocessing_data()
     # handle_patch()
     save_h5_2()
     #preprocessing_data_fn(None)

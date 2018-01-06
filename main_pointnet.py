@@ -132,7 +132,7 @@ class Network(object):
         tf.summary.histogram('loss/edge_mask', self.edgemask)
         tf.summary.scalar('loss/edge_loss', self.edge_loss)
 
-        self.perulsionloss = 10*model_utils.get_uniform_loss1(self.pred_coord,numpoint=NUM_POINT*UP_RATIO)
+        self.perulsionloss = 10*model_utils.get_perulsion_loss1(self.pred_coord, numpoint=NUM_POINT * UP_RATIO)
         tf.summary.scalar('loss/perulsion_loss', self.perulsionloss)
 
         self.total_loss = self.dist_mseloss + self.plane_loss + self.edge_loss + self.perulsionloss + tf.losses.get_regularization_loss()

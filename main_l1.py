@@ -14,22 +14,22 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 import data_provider
 import model_utils
-import generator1_upsample2_transform as MODEL_GEN
+import generator1_upsample2 as MODEL_GEN
 from data_provider import NUM_EDGE, NUM_FACE
 from GKNN import GKNN
 from tf_ops.sampling.tf_sampling import farthest_point_sample
 from utils import pc_util
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--phase', default='train', help='train or test [default: train]')
+parser.add_argument('--phase', default='test', help='train or test [default: train]')
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
-parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2_largedata_transform_halfnoise', help='Log dir [default: log]')
+parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_sharpmix_crop_l1_2', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=1024,help='Point Number [1024/2048] [default: 1024]')
-parser.add_argument('--num_addpoint', type=int, default=512,help='Add Point Number [default: 600]')# train(1k) is 512, test is 48(96)?
+parser.add_argument('--num_addpoint', type=int, default=80,help='Add Point Number [default: 600]')# train(1k) is 256, test is 48(60)?
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
 parser.add_argument('--is_crop',type= bool, default=True, help='Use cropped points in training [default: False]')
-parser.add_argument('--max_epoch', type=int, default=100, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
-parser.add_argument('--batch_size', type=int, default=14, help='Batch Size during training [default: 32]') #(512:16 1k:8,is_crop:16)
+parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
+parser.add_argument('--batch_size', type=int, default=16, help='Batch Size during training [default: 32]') #(512:16 1k:8,is_crop:16)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 parser.add_argument('--assign_model_path',default=None, help='Pre-trained model path [default: None]')
 parser.add_argument('--use_uniformloss',type= bool, default=False, help='Use uniformloss [default: False]')
@@ -74,7 +74,7 @@ class Network(object):
         self.pointclouds_plane_normal = tf.placeholder(tf.float32, shape=(BATCH_SIZE, NUM_FACE,3))
 
         # create the generator model
-        self.pred_dist, self.pred_coord,self.idx,self.transform = MODEL_GEN.get_gen_model(self.pointclouds_input, is_training, scope=scope, bradius=1.0,
+        self.pred_dist, self.pred_coord,self.idx,_ = MODEL_GEN.get_gen_model(self.pointclouds_input, is_training, scope=scope, bradius=1.0,
                                                     num_addpoint=NUM_ADDPOINT,reuse=None, use_normal=False, use_bn=False,use_ibn=False,
                                                     bn_decay=bn_decay, up_ratio=UP_RATIO,idx=self.pointclouds_idx,is_crop=IS_CROP)
 
@@ -99,6 +99,7 @@ class Network(object):
             indics = tf.where(tf.less_equal(self.pointclouds_dist_truncated, self.edge_threshold))  # (?,2)
             self.select_pred_edgecoord = tf.gather_nd(self.pred_coord, indics)  # (?,3)
             self.select_pred_edgedist = tf.gather_nd(self.pred_dist, indics)  # (?,3)
+
         # if is_training is False:
         #     input_dist = model_utils.distance_point2edge(self.pointclouds_input,self.pointclouds_edge)
         #     input_dist = tf.sqrt(tf.reduce_min(input_dist,axis=-1))
@@ -110,45 +111,40 @@ class Network(object):
             return
 
         self.dist_mseloss = 1.0/(0.4+self.pointclouds_dist_truncated)*(self.pointclouds_dist_truncated - self.pred_dist) ** 2
-        self.dist_mseloss = 5 * tf.reduce_mean(self.dist_mseloss / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1))
+        self.dist_mseloss = tf.reduce_mean(self.dist_mseloss / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1))
         tf.summary.scalar('loss/dist_loss', self.dist_mseloss)
         tf.summary.histogram('dist/gt', self.pointclouds_dist_truncated)
-        tf.summary.histogram('dist/edge_dist', self.edgedist)
         tf.summary.histogram('dist/pred', self.pred_dist)
 
         # weight = tf.pow(0.98, tf.to_float(tf.div(self.step,200)))
-        weight = tf.maximum(0.5 - tf.to_float(self.step) / 20000.0, 0.0)
+        weight = tf.maximum(0.5-tf.to_float(self.step)/20000.0,0.0)
         self.edgemask = tf.to_float(tf.less_equal(weight * self.edgedist + (1 - weight) * self.pred_edgedist, 0.15))
-        # self.edgemask = tf.to_float(tf.less_equal(self.edgedist,0.45))
-        self.edge_loss = 50*tf.reduce_sum(self.edgemask * self.edgedist**2 / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1)) / (tf.reduce_sum(self.edgemask) + 1.0)
-
+        self.edge_loss = tf.reduce_sum(self.edgemask * self.edgedist/ tf.expand_dims(self.pointclouds_radius, axis=-1)) / (tf.reduce_sum(self.edgemask) + 1.0)
         tf.summary.scalar('weight',weight)
+        tf.summary.histogram('dist/edge_dist', self.edgedist)
         tf.summary.histogram('loss/edge_mask', self.edgemask)
         tf.summary.scalar('loss/edge_loss', self.edge_loss)
 
         with tf.device('/gpu:0'):
             self.plane_dist = model_utils.distance_point2mesh(self.pred_coord, self.pointclouds_plane)
-            self.plane_dist = tf.reduce_min(self.plane_dist, axis=2)
-            # idx = tf.argmin(self.plane_dist, axis=2,output_type=tf.int32)
-            # idx0 = tf.tile(tf.reshape(tf.range(BATCH_SIZE), (BATCH_SIZE, 1)), (1, NUM_POINT*UP_RATIO/2))
-            # face_normal = tf.gather_nd(self.pointclouds_plane_normal,tf.stack([idx0,idx],axis=-1))
+            idx = tf.argmin(self.plane_dist, axis=2,output_type=tf.int32)
+            idx0 = tf.tile(tf.reshape(tf.range(BATCH_SIZE), (BATCH_SIZE, 1)), (1, NUM_POINT*UP_RATIO/2))
+            face_normal = tf.gather_nd(self.pointclouds_plane_normal,tf.stack([idx0,idx],axis=-1))
 
-            # dist = tf.where(tf.is_nan(dist),tf.zeros_like(dist),dist)
-            self.plane_loss = 500*tf.reduce_mean(self.plane_dist / tf.expand_dims(self.pointclouds_radius**2, axis=-1))
+            # self.plane_dist = tf.where(tf.is_nan(self.plane_dist),tf.zeros_like(self.plane_dist),self.plane_dist)
+            self.plane_dist = tf.reduce_min(self.plane_dist, axis=2)
+            self.plane_dist = tf.sqrt(self.plane_dist+1e-12)
+            tf.summary.histogram('dist/plane_dist',self.plane_dist)
+
+            self.plane_loss = 5*tf.reduce_mean(self.plane_dist / tf.expand_dims(self.pointclouds_radius, axis=-1))
             tf.summary.scalar('loss/plane_loss', self.plane_loss)
 
-        #self.perulsionloss = 10*model_utils.get_uniform_loss1_orthdistance(self.pred_coord,face_normal, numpoint=NUM_POINT*UP_RATIO)
-        self.perulsionloss = 500*model_utils.get_perulsion_loss1(self.pred_coord, numpoint=NUM_POINT * UP_RATIO)
+        self.perulsionloss = model_utils.get_perulsion_loss1_orthdistance(self.pred_coord,face_normal, numpoint=NUM_POINT*UP_RATIO,use_l1=True)
+        # self.perulsionloss = model_utils.get_perulsion_loss1(self.pred_coord, numpoint=NUM_POINT * UP_RATIO, use_l1=True)
         tf.summary.scalar('loss/perulsion_loss', self.perulsionloss)
 
-        # # Enforce the transformation as orthogonal matrix
-        # K = transform.get_shape()[1].value # BxKxK
-        # mat_diff = tf.matmul(transform, tf.transpose(transform, perm=[0, 2, 1]))
-        # mat_diff -= tf.constant(np.eye(K), dtype=tf.float32)
-        # self.mat_diff_loss = 0.01*tf.nn.l2_loss(mat_diff)
-        # tf.summary.scalar('loss/mat_loss', self.mat_diff_loss)
+        self.total_loss = 10*(self.dist_mseloss + self.plane_loss + self.edge_loss + self.perulsionloss) + tf.losses.get_regularization_loss()
 
-        self.total_loss = self.dist_mseloss + self.plane_loss + self.edge_loss + self.perulsionloss + tf.losses.get_regularization_loss()
 
         gen_update_ops = [op for op in tf.get_collection(tf.GraphKeys.UPDATE_OPS) if op.name.startswith(scope)]
         gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith(scope)]
@@ -202,7 +198,7 @@ class Network(object):
             ##read data
             self.fetchworker = data_provider.Fetcher(BATCH_SIZE, NUM_POINT)
             self.fetchworker.start()
-            for epoch in tqdm(range(restore_epoch, MAX_EPOCH + 1), ncols=45):
+            for epoch in tqdm(range(restore_epoch, MAX_EPOCH + 1), ncols=55):
                 log_string('**** EPOCH %03d ****\t' % (epoch))
                 self.train_one_epoch()
                 if epoch % 20 == 0:
@@ -253,43 +249,20 @@ class Network(object):
 
                 summary = self.sess.run(self.image_merged, feed_dict)
                 self.train_writer.add_summary(summary, step)
-            if step % 100 ==0:
-                loss_sum = np.asarray(loss_sum)
-                log_string('step: %d edge_loss: %f\n' % (step, round(loss_sum.mean(), 4)))
-                print 'datatime:%s edge_loss:%f' % (round(fetch_time, 4), round(loss_sum.mean(), 4))
-                loss_sum = []
-
+        loss_sum = np.asarray(loss_sum)
+        log_string('step: %d edge_loss: %f\n' % (step, round(loss_sum.mean(), 4)))
+        print 'read data time: %s edge_loss: %f' % (round(fetch_time, 4), round(loss_sum.mean(), 4))
 
     def patch_prediction(self, patch_point,sess):
         #normalize the point clouds
         patch_point, centroid, furthest_distance = data_provider.normalize_point_cloud(patch_point)
         new_idx = np.stack((np.zeros((NUM_POINT)).astype(np.int64), np.arange(NUM_POINT)), axis=-1)
-
         pred, pred_edge, pred_edgedist = sess.run([self.pred_coord, self.select_pred_edgecoord, self.select_pred_edgedist],
                                                     feed_dict={self.pointclouds_input: np.expand_dims(patch_point,axis=0),
                                                                self.pointclouds_radius: np.ones(1),
                                                                self.pointclouds_idx:np.expand_dims(new_idx,axis=0)
                                                                # self.edge_threshold: 0.015 / furthest_distance,
                                                                })
-        ##calculate the pca of edge
-        # tree = spatial.cKDTree(data)
-        # dist, idx = tree.query(data, k=20)
-        # if pred_edge.shape[0]>=2:
-        #     new_pred_edge = []
-        #     pca = PCA(n_components=1)
-        #     dist = spatial.distance.squareform(spatial.distance.pdist(pred_edge))
-        #     for item in dist:
-        #         idx = np.where(item<0.05)[0]
-        #         idx = np.random.permutation(idx)[:15]
-        #         data = pred_edge[idx]
-        #         # print len(data)
-        #         pca.fit(data)
-        #         newdata = pca.transform(data[0:1,:]) * pca.components_ + pca.mean_
-        #         new_pred_edge.append(newdata[0])
-        #     pred_edge = np.asarray(new_pred_edge)
-        # else:
-        #     print "No edge point or one edge point"
-
         pred = np.squeeze(centroid + pred * furthest_distance, axis=0)
         pred_edge = centroid + pred_edge * furthest_distance
         pred_edgedist = pred_edgedist * furthest_distance
@@ -332,13 +305,12 @@ class Network(object):
 
     def test_hierarical_prediction(self):
         data_folder = '../../PointSR_data/CAD_imperfect/new_simu_noise'
-        data_folder = '../../PointSR_data/virtualscan/new_simu_noise'
-        # data_folder = '../../PointSR_data/virtualscan/chair_test1'
+        #data_folder = '../../PointSR_data/virtualscan/new_simu_noise'
+        data_folder = '../../PointSR_data/virtualscan/chair_test1'
         phase = data_folder.split('/')[-2]+"_"+data_folder.split('/')[-1]
         save_path = os.path.join(MODEL_DIR, 'result/' + phase)
         self.saver = tf.train.Saver()
         _, restore_model_path = model_utils.pre_load_checkpoint(MODEL_DIR)
-        # restore_model_path = restore_model_path.replace('160','100')
         print restore_model_path
 
         config = tf.ConfigProto()
@@ -347,7 +319,7 @@ class Network(object):
         with tf.Session(config=config) as sess:
             self.saver.restore(sess, restore_model_path)
             total_time = 0
-            samples = glob(data_folder + "/*_noise.xyz")
+            samples = glob(data_folder + "/*_noise_half.xyz")
             samples.sort(reverse=True)
             for point_path in samples:
                 if 'no_noise' in point_path:
@@ -360,7 +332,7 @@ class Network(object):
                 ## get patch seed from farthestsampling
                 points = tf.convert_to_tensor(np.expand_dims(gm.data,axis=0),dtype=tf.float32)
                 start= time.time()
-                seed1_num = int(gm.data.shape[0] / (NUM_POINT/8) * 5)
+                seed1_num = int(gm.data.shape[0] / (NUM_POINT / 8) * 5)
                 seed = farthest_point_sample(seed1_num*2, points).eval()[0]
                 print "farthest distance sampling cost", time.time() - start
                 seed_list = seed[:seed1_num]
