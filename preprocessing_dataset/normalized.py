@@ -108,7 +108,7 @@ class Mesh:
 
 
 def preprocessing_data_fn(path):
-    save_path = '/home/lqyu/models/models/needed label2/'
+    save_path = '/home/lqyu/226-Fandisk_rand-flips/aa/'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
@@ -116,9 +116,9 @@ def preprocessing_data_fn(path):
     M.remove_redundent(path,save_path)
 
 def preprocessing_data():
-    file_list = glob('/home/lqyu/models/models/needed label/*.off')
+    file_list = glob('/home/lqyu/226-Fandisk_rand-flips/SWITCH_POT.off')
     print len(file_list)
-    pool = ThreadPool(8)
+    pool = ThreadPool(1)
     pool.map(preprocessing_data_fn, file_list)
 
 if __name__ == '__main__':

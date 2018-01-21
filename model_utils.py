@@ -94,6 +94,35 @@ def get_perulsion_loss1(pred, nsample=15, radius=0.07, knn=False, numpoint=4096,
     perulsion_loss = tf.reduce_mean(val)
     return perulsion_loss
 
+def get_perulsion_loss1_large(pred, nsample=15, radius=0.07, knn=False, numpoint=4096, use_l1=False):
+    # pred: (batch_size, npoint,3)
+    if knn:
+        with tf.device('/gpu:1'):
+            _, idx = knn_point(nsample, pred, pred)
+        pts_cnt = tf.constant(nsample, shape=(30, 1024))
+    else:
+        idx, pts_cnt = query_ball_point(radius, nsample, pred, pred)
+    tf.summary.histogram('smooth/unque_index', pts_cnt)
+
+    grouped_pred = group_point(pred, idx)  # (batch_size, npoint, nsample, 3)
+    grouped_pred -= tf.expand_dims(pred, 2)
+
+    ##get the uniform loss
+    dists = tf.reduce_sum(grouped_pred ** 2, axis=-1)
+    if use_l1:
+        dists = tf.sqrt(dists+1e-12)
+    val, idx = tf.nn.top_k(-dists, 9)
+    val = val[:, :, 1:]  # remove the first one
+
+    h = (2.0/np.sqrt(numpoint))**2
+    if use_l1:
+        h = np.sqrt(0.001)*2
+    else:
+        h = 0.003
+    print "h is ",h
+    val = tf.maximum(0.0, h + val) # dd/np.sqrt(n)
+    perulsion_loss = tf.reduce_mean(val)
+    return perulsion_loss
 
 def get_uniform_loss2(pred, nsample=20, radius=0.07, knn=False):
     # pred: (batch_size, npoint,3)
@@ -632,13 +661,12 @@ def resample4density(pred):
     select_pts = pred[idx]
     return select_pts
 
-
 if __name__ == '__main__':
     point = tf.constant(np.array([0.5, -0.3, 0.5]),tf.float32)
-    tri = tf.constant(np.array(np.array([[0,-1,0],[1,0,0],[0,0,0]])),tf.float32)
+    tri   = tf.constant(np.array(np.array([[0,-1,0],[1,0,0],[0,0,0]])),tf.float32)
     point = tf.random_normal((6,4096,3))
-    tri = tf.random_uniform((6,1000,3,3))
-    dist = distance_point2mesh(point, tri)
+    tri   = tf.random_uniform((6,1000,3,3))
+    dist  = distance_point2mesh(point, tri)
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True

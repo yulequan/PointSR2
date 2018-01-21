@@ -26,10 +26,10 @@ parser.add_argument('--phase', default='test', help='train or test [default: tra
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
 parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2_4d2', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=1024, help='Point Number [1024/2048] [default: 1024]')
-parser.add_argument('--num_addpoint', type=int, default=96*2, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
+parser.add_argument('--num_addpoint', type=int, default=96, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
 parser.add_argument('--is_crop',type= bool, default=True, help='Use cropped points in training [default: False]')
-parser.add_argument('--max_epoch', type=int, default=300, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
+parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
 parser.add_argument('--batch_size', type=int, default=12, help='Batch Size during training [default: 32]') #(512:16 1k:8,is_crop:16)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 parser.add_argument('--assign_model_path',default=None, help='Pre-trained model path [default: None]')
@@ -183,7 +183,7 @@ class Network(object):
             self.sess.run(init)
 
             # restore the model
-            saver = tf.train.Saver(max_to_keep=10)
+            saver = tf.train.Saver(max_to_keep=6)
             restore_epoch, checkpoint_path = model_utils.pre_load_checkpoint(MODEL_DIR)
             global LOG_FOUT
             if restore_epoch == 0:
@@ -346,11 +346,11 @@ class Network(object):
             edge_tree = spatial.cKDTree(edge)
             seed_data = gm.data[np.asarray(seed_list)]
             seed_tree = spatial.cKDTree(seed_data)
-            indics = seed_tree.query_ball_tree(edge_tree,r=0.02)
+            indics = seed_tree.query_ball_tree(edge_tree,r=0.03)
             ratios = []
             cnt = 0
             for item in indics:
-                if len(item)>=3:
+                if len(item)>=10:
                     #ratios.append(np.random.uniform(1.0,2.0))
                     ratios.append(1.0)
                     cnt = cnt + 1
@@ -470,9 +470,8 @@ class Network(object):
         phase = data_folder.split('/')[-3]+"_"+data_folder.split('/')[-2]
         save_path = os.path.join(MODEL_DIR, 'result/' + 'halfnoise_'+ phase+'_512_0.05_dynamic_96')
 
-        data_folder = '../../PointSR_data/CAD_imperfect/mesh_simu_pc/6*.xyz'
-        data_folder = '../../PointSR_data/tmp/retobettersurface/*.xyz'
-        save_path = os.path.join('../../PointSR_data/tmp/moniter_1024/')
+        data_folder = '../../PointSR_data/small_points_cad/1_*.xyz'
+        save_path = os.path.join('../../PointSR_data/aa_tmp/')
 
         self.saver = tf.train.Saver()
         _, restore_model_path = model_utils.pre_load_checkpoint(MODEL_DIR)

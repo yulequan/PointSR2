@@ -19,6 +19,12 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
             l0_points = point_cloud[:,:,3:]
         else:
             l0_points = None
+
+        with tf.variable_scope('transform_net1') as sc:
+            transform = input_transform_net(l0_xyz, is_training, bn_decay=None, K=3)
+            l0_xyz = tf.matmul(tf.expand_dims(l0_xyz,axis=2), transform)
+            l0_xyz = tf.squeeze(l0_xyz,axis=2)
+
         # Layer 1
         l1_xyz, l1_points, l1_indices = pointnet_sa_module(l0_xyz, l0_points, npoint=num_point, radius=bradius*0.1,bn=use_bn,ibn = use_ibn,
                                                            nsample=12, mlp=[32, 32, 64], mlp2=None, group_all=False,
@@ -79,11 +85,6 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
                                 bn=False, is_training=is_training,
                                 scope='coord_fc1', bn_decay=bn_decay, weight_decay=0.0)
 
-        # with tf.variable_scope('transform_net2') as sc:
-        #     transform = feature_transform_net(up_feat, is_training, bn_decay, K=64)
-        #     up_feat = tf.matmul(tf.squeeze(up_feat, axis=[2]), transform)
-        #     up_feat = tf.expand_dims(up_feat, [2])
-
         r_coord = tf_util2.conv2d(up_feat, 3, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
@@ -96,14 +97,15 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
             nsample = 20
             idx, pts_cnt = query_ball_point(0.2, nsample, coord, coord)
             grouped_coord = group_point(coord, idx)  #(batch_size, npoint, nsample, 3)
+            grouped_coord -=tf.tile(tf.expand_dims(coord,axis=2),[1,1,nsample,1])
             grouped_coord = tf.reshape(grouped_coord,[batch_size*upsample_cnt,nsample,3])
             transform = input_transform_net(grouped_coord, is_training, bn_decay=None, K=3)
             transform = tf.reshape(transform,[batch_size,upsample_cnt,3,3])
-            coord = tf.matmul(tf.expand_dims(coord,axis=2), transform)
-            coord = tf.squeeze(coord,axis=2)
+            r_coord = tf.matmul(r_coord, transform)
+            coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:, :, 0:3], (1, up_ratio, 1))
 
         #branch2: dist to the edge
-        combined_feat = tf.concat((tf.tile(feat,(1,up_ratio,1,1)),up_feat),axis=-1)
+        combined_feat = tf.concat((tf.tile(feat,(1,up_ratio,1,1)),up_feat,r_coord),axis=-1)
         dist = tf_util2.conv2d(combined_feat, 64, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,

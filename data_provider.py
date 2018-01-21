@@ -10,11 +10,11 @@ import numpy as np
 
 from utils import show3d
 
-NUM_EDGE=200
-NUM_FACE=400
-
 NUM_EDGE = 120
 NUM_FACE = 800
+
+# NUM_EDGE = 80
+# NUM_FACE = 800
 
 def get_inverse_index(num):
     idx = np.random.permutation(num)
@@ -35,7 +35,7 @@ def normalize_point_cloud(input):
     return input, centroid,furthest_distance
 
 def load_patch_data(skip_rate = 1):
-    h5_filename = '../../PointSR_h5data/Virtualscan1k_halfnoise.h5'
+    h5_filename = '../../PointSR_h5data/Virtualscan1k_halfnoise_mix.h5'
     f = h5py.File(h5_filename)
     input = f['mc8k_input'][:]
     dist = f['mc8k_dist'][:]
@@ -51,7 +51,7 @@ def load_patch_data(skip_rate = 1):
     assert len(input) == len(edge)
 
     # ####
-    h5_filename = '../../PointSR_h5data/CAD1k_halfnoise.h5'
+    h5_filename = '../../PointSR_h5data/CAD1k_halfnoise_mix.h5'
     f = h5py.File(h5_filename)
     input1 = f['mc8k_input'][:]
     dist1 = f['mc8k_dist'][:]

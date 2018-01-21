@@ -74,11 +74,27 @@ def sampling_from_face(face):
     return points
 
 class GKNN():
-    def __init__(self, point_path, edge_path=None, mesh_path=None, patch_size=1024, patch_num=30, clean_point_path = None, normalization=False, add_noise=False):
+    def __init__(self, point_path, edge_path=None, mesh_path=None, patch_size=1024, patch_num=30, clean_point_path = None,
+                 normalization=False, add_noise=False):
         print point_path,edge_path,mesh_path
         self.name = point_path.split('/')[-1][:-4]
         self.data = np.loadtxt(point_path)
         self.data = self.data[:,0:3]
+
+        #####
+        # angles = np.asarray([0.25 * np.pi, 0.25 * np.pi, 0.25 * np.pi])
+        # Rx = np.array([[1, 0, 0],
+        #                [0, np.cos(angles[0]), -np.sin(angles[0])],
+        #                [0, np.sin(angles[0]), np.cos(angles[0])]])
+        # Ry = np.array([[np.cos(angles[1]), 0, np.sin(angles[1])],
+        #                [0, 1, 0],
+        #                [-np.sin(angles[1]), 0, np.cos(angles[1])]])
+        # Rz = np.array([[np.cos(angles[2]), -np.sin(angles[2]), 0],
+        #                [np.sin(angles[2]), np.cos(angles[2]), 0],
+        #                [0, 0, 1]])
+        # rotation_matrix = np.dot(Rz, np.dot(Ry, Rx))
+        # self.data = np.dot(self.data, rotation_matrix)
+        #####
         if clean_point_path is not None:
             print "Use clean data to construct the graph", clean_point_path
             self.clean_data = np.loadtxt(clean_point_path)[:, 0:3]
@@ -88,17 +104,17 @@ class GKNN():
 
         # self.data = self.data[np.random.permutation(len(self.data))[:100000]]
         self.centroid = np.mean(self.data, axis=0, keepdims=True)
-        self.furthres_distance = np.amax(np.sqrt(np.sum((self.data-self.centroid)**2, axis=-1)), keepdims=True)
+        self.furthest_distance = np.amax(np.sqrt(np.sum((self.data - self.centroid) ** 2, axis=-1)), keepdims=True)
 
         if normalization:
             print "Normalize the point data"
-            self.data = (self.data-self.centroid)/self.furthres_distance
+            self.data = (self.data-self.centroid)/self.furthest_distance
             if clean_point_path is not None:
-                self.clean_data = (self.clean_data-self.centroid)/self.furthres_distance
+                self.clean_data = (self.clean_data-self.centroid)/self.furthest_distance
         if add_noise:
             print "Add gaussian noise into the point"
-            self.data = jitter_perturbation_point_cloud(np.expand_dims(self.data,axis=0),sigma=self.furthres_distance*0.004,
-                                                                                         clip=self.furthres_distance*0.01)
+            self.data = jitter_perturbation_point_cloud(np.expand_dims(self.data,axis=0), sigma=self.furthest_distance * 0.004,
+                                                        clip=self.furthest_distance * 0.01)
             self.data = self.data[0]
 
         print "Total %d points" % len(self.data)
@@ -119,9 +135,10 @@ class GKNN():
         start = time.time()
         self.nbrs = spatial.cKDTree(self.clean_data)
         dists,idxs = self.nbrs.query(self.clean_data,k=6,distance_upper_bound=0.2)
+        dists,idxs = self.nbrs.query(self.clean_data,k=6)
         self.graph=[]
         for item,dist in zip(idxs,dists):
-            item = item[dist<0.05]
+            item = item[dist<0.03] #use 0.03 for chair7 model; otherwise use 0.05
             self.graph.append(set(item))
         print "Build the graph cost %f second" % (time.time() - start)
 
@@ -142,7 +159,7 @@ class GKNN():
         visited = set()
         result = []
         q.append(seed)
-        while len(visited)<patch_size:
+        while len(visited)<patch_size and q:
             vertex = q.popleft()
             if vertex not in visited:
                 visited.add(vertex)
@@ -193,32 +210,34 @@ class GKNN():
         return idx
 
 
-    def get_idx(self,num,random_ratio=0.2):
+    def get_idx(self,num,random_ratio=0.7):
         #select seed from the edge
         select_points =[]
         prob = np.sqrt(np.sum(np.power(self.edge[:,3:6]-self.edge[:,0:3],2),axis=-1))
         prob = prob/np.sum(prob)
-        idx1 = np.random.choice(len(self.edge),size=num-int(num*random_ratio), p=prob)
+        idx1 = np.random.choice(len(self.edge),size=int(1.5*num*random_ratio), p=prob)
         for item in idx1:
             edge = self.edge[item]
             point = edge[0:3]+np.random.random()*(edge[3:6]-edge[0:3])
             select_points.append(point)
         select_points = np.asarray(select_points)
+        dist, idx = self.nbrs.query(select_points, k=50)
+        idx1 = idx[dist[:,-1]<0.05,0][:int(num*random_ratio)]
 
         # randomly select seed
-        idx2 = np.random.randint(0, len(self.clean_data)-20, [int(num * random_ratio), 1])
+        idx2 = np.random.randint(0, len(self.clean_data)-20, [num-len(idx1), 1])
         idx2 = idx2 + np.arange(0,20).reshape((1,20))
         point = self.clean_data[idx2]
-        select_points = np.concatenate([select_points,np.mean(point, axis=1)],axis=0)
-        select_points = np.asarray(select_points)
-        _,idx = self.nbrs.query(select_points,k=10)
-        return idx[:,0]
+        point = np.mean(point, axis=1)
+        _,idx2 = self.nbrs.query(point,k=10)
+
+        return np.concatenate([idx1,idx2[:,0]])
 
     def get_subedge(self,dist):
         threshold = 0.05
         # sort the  edge according to the distance to point
         dist = np.sort(dist, axis=0)
-        second_dist = dist[1, :]
+        second_dist = dist[5, :]
         idx = np.argsort(second_dist)
         second_dist.sort()
         subedge = self.edge[idx[second_dist < threshold]]
@@ -232,7 +251,7 @@ class GKNN():
         threshold = 0.03
         # sort the  edge according to the distance to point
         dist = np.sort(dist, axis=0)
-        second_dist = dist[1, :]
+        second_dist = dist[5, :]
         idx = np.argsort(second_dist)
         second_dist.sort()
         subface = self.face[idx[second_dist < threshold]]

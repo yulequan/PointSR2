@@ -37,38 +37,59 @@
 #     # sess.run(train_step)
 #     print "aaa"
 
-import time
-
+#
+# data = np.array(np.random.random((10000,1000)))
+#
+# t1 = time.time()
+# results = PCA2(data)
+# t2 = time.time()
+#
+# pca = PCA1(n_components=1)
+# pca.fit(data)
+# aa = pca.components_
+# t3 = time.time()
+#
+# m, n = data.shape
+# # mean center the data
+# data -= data.mean(axis=0)
+# # calculate the covariance matrix
+# R = np.cov(data, rowvar=False)
+# # calculate eigenvectors & eigenvalues of the covariance matrix
+# # use 'eigh' rather than 'eig' since R is symmetric,
+# # the performance gain is substantial
+# evals, evecs = LA.eigh(R)
+# # sort eigenvalue in decreasing order
+# idx = np.argsort(evals)[::-1]
+# evecs = evecs[:,idx]
+# # sort eigenvectors according to same index
+# evals = evals[idx]
+# t4 = time.time()
+#
+# print t2-t1, t3-t2, t4-t3
 import numpy as np
-from matplotlib.mlab import PCA as PCA2
-from scipy import linalg as LA
-from sklearn.decomposition import PCA as PCA1
+from matplotlib import pyplot as plt
 
-data = np.array(np.random.random((10000,1000)))
-
-t1 = time.time()
-results = PCA2(data)
-t2 = time.time()
-
-pca = PCA1(n_components=1)
-pca.fit(data)
-aa = pca.components_
-t3 = time.time()
-
-m, n = data.shape
-# mean center the data
-data -= data.mean(axis=0)
-# calculate the covariance matrix
-R = np.cov(data, rowvar=False)
-# calculate eigenvectors & eigenvalues of the covariance matrix
-# use 'eigh' rather than 'eig' since R is symmetric,
-# the performance gain is substantial
-evals, evecs = LA.eigh(R)
-# sort eigenvalue in decreasing order
-idx = np.argsort(evals)[::-1]
-evecs = evecs[:,idx]
-# sort eigenvectors according to same index
-evals = evals[idx]
-t4 = time.time()
-
-print t2-t1, t3-t2, t4-t3
+aa = np.loadtxt('/home/lqyu/tmp/depth.txt')
+bb = np.loadtxt('/home/lqyu/tmp/depth_afterdrop.txt')
+cc = np.loadtxt('/home/lqyu/tmp/superpixel.txt')
+f,axs = plt.subplots(1,3)
+axs[0].imshow(aa)
+axs[1].imshow(bb)
+axs[2].imshow(cc)
+plt.show()
+# f = h5py.File('/home/lqyu/server/proj49/PointSR_h5data/Virtualscan1k_halfnoise_copy.h5')
+# input = f['mc8k_input'][:]
+# edgepoint = f['edge_points'][:]
+# name = f['name'][:]
+#
+# aa=[]
+# for item1,item2 in zip(name,edgepoint):
+#     if 'chair_7' in item1:
+#         aa.append(item2)
+#
+# aa = np.asarray(aa)
+# aa = np.reshape(aa,[-1,3])
+# np.savetxt('/home/lqyu/server/proj49/PointSR_h5data/aa.xyz',aa,fmt='%.6f')
+#
+#
+# np.loadtxt()

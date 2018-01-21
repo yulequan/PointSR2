@@ -1,6 +1,5 @@
 import tensorflow as tf
 
-from tf_ops.grouping.tf_grouping import query_ball_point, group_point
 from transform_nets import input_transform_net
 from utils import tf_util2
 from utils.pointnet_util import pointnet_sa_module, pointnet_fp_module
@@ -19,6 +18,11 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
             l0_points = point_cloud[:,:,3:]
         else:
             l0_points = None
+
+        with tf.variable_scope('transform_net1') as sc:
+            transform = input_transform_net(l0_xyz, is_training, bn_decay=None, K=3)
+            l0_xyz = tf.matmul(l0_xyz, transform)
+            
         # Layer 1
         l1_xyz, l1_points, l1_indices = pointnet_sa_module(l0_xyz, l0_points, npoint=num_point, radius=bradius*0.1,bn=use_bn,ibn = use_ibn,
                                                            nsample=12, mlp=[32, 32, 64], mlp2=None, group_all=False,
@@ -40,11 +44,10 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
         if not is_training:
             l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/8), :])
             l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/8), :])
-            upsample_cnt = num_point * up_ratio / 8
         elif is_crop:
             l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/2), :])
             l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/2), :])
-            upsample_cnt = num_point * up_ratio / 2
+
 
         up_l4_points = pointnet_fp_module(l0_xyz, l4_xyz, None, l4_points, [64], is_training, bn_decay,
                                        scope='fa_layer1',bn=use_bn,ibn = use_ibn)
@@ -74,46 +77,29 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
                                           bn_decay=bn_decay)
                 up_feat_list.append(up_feat)
         up_feat = tf.concat(up_feat_list, axis=1)
-        up_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
+        dist_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
                                 padding='VALID', stride=[1, 1],
                                 bn=False, is_training=is_training,
-                                scope='coord_fc1', bn_decay=bn_decay, weight_decay=0.0)
-
-        # with tf.variable_scope('transform_net2') as sc:
-        #     transform = feature_transform_net(up_feat, is_training, bn_decay, K=64)
-        #     up_feat = tf.matmul(tf.squeeze(up_feat, axis=[2]), transform)
-        #     up_feat = tf.expand_dims(up_feat, [2])
-
-        r_coord = tf_util2.conv2d(up_feat, 3, [1, 1],
+                                scope='dist_fc1', bn_decay=bn_decay, weight_decay=0.0)
+        dist = tf_util2.conv2d(dist_feat, 1, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
-                               scope='coord_fc2', bn_decay=bn_decay,
+                               scope='dist_fc2', bn_decay=bn_decay,
                                activation_fn=None, weight_decay=0.0)
-
-        coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:,:,0:3],(1,up_ratio,1))
-
-        with tf.variable_scope('transform_net2') as sc:
-            nsample = 20
-            idx, pts_cnt = query_ball_point(0.2, nsample, coord, coord)
-            grouped_coord = group_point(coord, idx)  #(batch_size, npoint, nsample, 3)
-            grouped_coord = tf.reshape(grouped_coord,[batch_size*upsample_cnt,nsample,3])
-            transform = input_transform_net(grouped_coord, is_training, bn_decay=None, K=3)
-            transform = tf.reshape(transform,[batch_size,upsample_cnt,3,3])
-            coord = tf.matmul(tf.expand_dims(coord,axis=2), transform)
-            coord = tf.squeeze(coord,axis=2)
+        dist = tf.squeeze(dist, axis=[2, 3])
 
         #branch2: dist to the edge
-        combined_feat = tf.concat((tf.tile(feat,(1,up_ratio,1,1)),up_feat),axis=-1)
-        dist = tf_util2.conv2d(combined_feat, 64, [1, 1],
+        combined_feat = tf.concat((up_feat, dist_feat),axis=-1)
+        coord_feat = tf_util2.conv2d(combined_feat, 64, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
-                               scope='dist_fc2', bn_decay=bn_decay,weight_decay=0.0)
-        dist = tf_util2.conv2d(dist, 1, [1, 1],
+                               scope='coord_fc1', bn_decay=bn_decay,weight_decay=0.0)
+        r_coord = tf_util2.conv2d(coord_feat, 3, [1, 1],
                                 padding='VALID', stride=[1, 1],
                                 bn=False, is_training=is_training,
-                                scope='dist_fc3', bn_decay=bn_decay,
+                                scope='coord_fc2', bn_decay=bn_decay,
                                 activation_fn=None,weight_decay=0.0)
-        dist = tf.squeeze(dist,axis=[2,3])
+        coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:, :, 0:3], (1, up_ratio, 1))
 
         # prune the points according to probability(how to better prune it? as a guidance???)
         # poolsize = int(num_addpoint * 1.2)
@@ -125,4 +111,4 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
         idx0 = tf.tile(tf.reshape(tf.range(batch_size),(batch_size,1)),(1,num_addpoint))
         idx = tf.stack([idx0,idx1],axis=-1)
 
-    return dist, coord, idx,transform
+    return dist, coord, idx, None

@@ -41,9 +41,7 @@ def preprocessing_annotation_file(sharpedge_path):
     name = sharpedge_path.split('/')[-1][:-16]
     obj_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/'+name+"_model.obj"
     off_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh/'+name+".off"
-
     softedge_path = '/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/'+name+"_soft_edges.obj"
-
 
     #convert obj to off
     cmd = '''meshlabserver -i '%s' -o '%s' '''%(obj_path,off_path)
@@ -72,9 +70,9 @@ def preprocessing_annotation_file(sharpedge_path):
         np.savetxt('/home/lqyu/server/proj49/PointSR_data/virtual scan/mesh_edgepoint/' + name + '_softedgepoint.xyz', softpoints, fmt='%.6f')
 
 def convertX2off():
-    file1 = glob('/home/lqyu/models/zip/*.zip')
+    file1 = glob('/home/lqyu/data_select/zip/*.zip')
     for id,item in enumerate(file1):
-        save_path = '/home/lqyu/models/off/'+str(id)+'.off'
+        save_path = '/home/lqyu/data_select/off/'+str(id)+'.off'
         #print save_path
         cmd1 = """unzip '%s' -d '%d'"""%(item, id)
         cmd2 = '''meshlabserver -i '%d/model.dae' -o '%s' '''%(id, save_path)
@@ -94,9 +92,50 @@ def merge_soft_and_sharp_edge():
         edge_path = item.replace('_sharpedge','_edge')
         np.savetxt(edge_path,data1,fmt='%.6f')
 
+def extractcureedge(path):
+    edge,edgepoint = read_edge_from_offline(path)
+    path = path[:-9]+'.obj'
+    path = path.replace('mesh_edge_obj','mesh_edge_curve')
+    if os.path.exists(path):
+        curveedge, _ = read_edge_from_offline(path)
+    else:
+        curveedge = np.zeros((0,3))
+
+
+    strightedge = []
+    for item1 in edge:
+        mask = False
+        for item in curveedge:
+            if np.all(item1==item):
+                mask = True
+                break
+        if mask==False:
+            strightedge.append(item1)
+    strightedge = np.asarray(strightedge)
+
+    strightedgepoint = []
+    for item in strightedge:
+        for iter in np.arange(0, 1.01, 0.01):
+            point = item[0:3] + iter * (item[3:6] - item[0:3])
+            strightedgepoint.append(point)
+    strightedgepoint = np.asarray(strightedgepoint)
+
+    path = path.replace('mesh_edge_curve', 'mesh_edge_straight')
+    path = path[:-4]
+    np.savetxt(path+'_edge.xyz',strightedge,fmt='%.6f')
+    np.savetxt(path+'_edgepoint.xyz', strightedgepoint, fmt='%.6f')
+
 if __name__ == '__main__':
-    #convertX2off()
-    merge_soft_and_sharp_edge()
+    # convertX2off()
+    # file = glob('/home/lqyu/server/proj49/PointSR_data/CAD_imperfect/mesh_curve_edge/7.obj')
+    # for item in file:
+    #     read_edge_from_offline(item)
+
+    file = glob('/home/lqyu/server/proj49/PointSR_data/CAD_imperfect/mesh_edge_obj/*.obj')
+    for item in file:
+        extractcureedge(item)
+
+    # merge_soft_and_sharp_edge()
     # file = glob('/home/lqyu/server/proj49/PointSR_data/virtual scan/Model_result_5/*_sharp_edges.obj')
     # print len(file)
     # for item in file:
