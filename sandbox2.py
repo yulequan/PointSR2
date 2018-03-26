@@ -1,3 +1,14 @@
+ids = []
+with open("/home/lqyu/Documents/CSCI3150.csv","r") as f:
+    lines = f.readlines()
+lines = lines[1:]
+for item in lines:
+    aa = item.split(",")
+    ids.append(aa[0]+"@link.cuhk.edu.hk")
+with open("/home/lqyu/Documents/email.txt","w") as f:
+    for item in ids:
+        f.write("%s\n"%item)
+print ":"
 # import matplotlib.pyplot as plt
 # fig = plt.figure()
 # ax = fig.add_subplot(111, projection='3d')

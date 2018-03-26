@@ -24,8 +24,8 @@ from utils import pc_util
 parser = argparse.ArgumentParser()
 parser.add_argument('--phase', default='test', help='train or test [default: train]')
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
-parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2_4d2', help='Log dir [default: log]')
-parser.add_argument('--num_point', type=int, default=1024, help='Point Number [1024/2048] [default: 1024]')
+parser.add_argument('--log_dir', default='../model/CAD_corner_generator1_1k_crop_l2_4d2', help='Log dir [default: log]')
+parser.add_argument('--num_point', type=int, default=512, help='Point Number [1024/2048] [default: 1024]')
 parser.add_argument('--num_addpoint', type=int, default=96, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
 parser.add_argument('--is_crop',type= bool, default=True, help='Use cropped points in training [default: False]')
@@ -118,8 +118,7 @@ class Network(object):
         tf.summary.histogram('dist/pred', self.pred_dist)
 
         # weight = tf.pow(0.98, tf.to_float(tf.div(self.step,200)))
-        weight = tf.maximum(0.5 - tf.to_float(self.step) / 20000.0, 0.0)
-        # weight = tf.maximum(0.5 - tf.to_float(self.step) / 200000.0, 0.0)
+        weight = tf.maximum(0.5 - tf.to_float(self.step) / 200000.0, 0.0)
         self.edgemask = tf.to_float(tf.less_equal(weight * self.edgedist + (1 - weight) * self.pred_edgedist, 0.15))
         # self.edgemask = tf.to_float(tf.less_equal(self.edgedist,0.45))
         self.edge_loss = 50*tf.reduce_sum(self.edgemask * self.edgedist**2 / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1)) / (tf.reduce_sum(self.edgemask) + 1.0)
@@ -439,10 +438,28 @@ class Network(object):
         pred = np.concatenate(up_point_list,axis=0)
 
         pred_edge = np.concatenate(up_edge_list, axis=0)
+
+        # angles = np.asarray([0.25 * np.pi, 0.25 * np.pi, 0.25 * np.pi])
+        # Rx = np.array([[1, 0, 0],
+        #                [0, np.cos(angles[0]), -np.sin(angles[0])],
+        #                [0, np.sin(angles[0]), np.cos(angles[0])]])
+        # Ry = np.array([[np.cos(angles[1]), 0, np.sin(angles[1])],
+        #                [0, 1, 0],
+        #                [-np.sin(angles[1]), 0, np.cos(angles[1])]])
+        # Rz = np.array([[np.cos(angles[2]), -np.sin(angles[2]), 0],
+        #                [np.sin(angles[2]), np.cos(angles[2]), 0],
+        #                [0, 0, 1]])
+        # rotation_matrix = np.dot(Rz, np.dot(Ry, Rx))
+        # rotation_matrix = np.linalg.inv(rotation_matrix)
+        # pred_edge = np.dot(pred_edge, rotation_matrix)
+
         print "total %d edgepoint" % pred_edge.shape[0]
-        pred_edgedist = np.concatenate(up_edgedist_list,axis=0)
-        rgba = data_provider.convert_dist2rgba(pred_edgedist, scale=10)
-        pred_edge = np.hstack((pred_edge, rgba, pred_edgedist.reshape(-1, 1)))
+        if pred_edge.shape[0]==0:
+            pred_edge = np.asarray([[0,0,0,0,0,0,0,0]])
+        else:
+            pred_edgedist = np.concatenate(up_edgedist_list,axis=0)
+            rgba = data_provider.convert_dist2rgba(pred_edgedist, scale=10)
+            pred_edge = np.hstack((pred_edge, rgba, pred_edgedist.reshape(-1, 1)))
 
         return input, pred, pred_edge
 
@@ -470,8 +487,8 @@ class Network(object):
         phase = data_folder.split('/')[-3]+"_"+data_folder.split('/')[-2]
         save_path = os.path.join(MODEL_DIR, 'result/' + 'halfnoise_'+ phase+'_512_0.05_dynamic_96')
 
-        data_folder = '../../PointSR_data/small_points_cad/1_*.xyz'
-        save_path = os.path.join('../../PointSR_data/aa_tmp/')
+        data_folder = '../../PointSR_data/curve_straight/*_noise_half.xyz'
+        save_path = os.path.join('../../PointSR_data/tmp/fandisk_corner_512_0.05')
 
         self.saver = tf.train.Saver()
         _, restore_model_path = model_utils.pre_load_checkpoint(MODEL_DIR)
@@ -585,9 +602,9 @@ if __name__ == "__main__":
     np.random.seed(int(time.time()))
     tf.set_random_seed(int(time.time()))
     if PHASE=='train':
-        assert not os.path.exists(os.path.join(MODEL_DIR, 'code/'))
-        os.makedirs(os.path.join(MODEL_DIR, 'code/'))
-        os.system('cp -r * %s' % (os.path.join(MODEL_DIR, 'code/')))  # bkp of model def
+        # assert not os.path.exists(os.path.join(MODEL_DIR, 'code/'))
+        # os.makedirs(os.path.join(MODEL_DIR, 'code/'))
+        # os.system('cp -r * %s' % (os.path.join(MODEL_DIR, 'code/')))  # bkp of model def
         network = Network()
         network.build_graph(is_training=True)
         network.train()

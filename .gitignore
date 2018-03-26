@@ -1,0 +1,10 @@
+python compile file
+*.pyc
+utils/*.pyc
+tf_ops/*/*.pyc
+preprocessing_dataset/*.pyc
+
+# Editor temporaries
+*.swp
+*~
+.idea/*

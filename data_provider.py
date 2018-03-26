@@ -13,8 +13,8 @@ from utils import show3d
 NUM_EDGE = 120
 NUM_FACE = 800
 
-# NUM_EDGE = 80
-# NUM_FACE = 800
+#NUM_EDGE = 50
+#NUM_FACE = 300
 
 def get_inverse_index(num):
     idx = np.random.permutation(num)
@@ -35,7 +35,7 @@ def normalize_point_cloud(input):
     return input, centroid,furthest_distance
 
 def load_patch_data(skip_rate = 1):
-    h5_filename = '../../PointSR_h5data/Virtualscan1k_halfnoise_mix.h5'
+    h5_filename = '../h5data/mix_CAD1k_halfnoise.h5'
     f = h5py.File(h5_filename)
     input = f['mc8k_input'][:]
     dist = f['mc8k_dist'][:]
@@ -51,7 +51,7 @@ def load_patch_data(skip_rate = 1):
     assert len(input) == len(edge)
 
     # ####
-    h5_filename = '../../PointSR_h5data/CAD1k_halfnoise_mix.h5'
+    h5_filename = '../h5data/mix_Virtualscan1k_halfnoise.h5'
     f = h5py.File(h5_filename)
     input1 = f['mc8k_input'][:]
     dist1 = f['mc8k_dist'][:]
@@ -115,6 +115,7 @@ def rotate_point_cloud_and_gt(batch_data,batch_gt=None):
                        [np.sin(angles[2]), np.cos(angles[2]), 0],
                        [0, 0, 1]])
         rotation_matrix = np.dot(Rz, np.dot(Ry, Rx))
+
 
         batch_data[k, ..., 0:3] = np.dot(batch_data[k, ..., 0:3].reshape((-1, 3)), rotation_matrix)
         if batch_data.shape[-1]>5:
@@ -325,7 +326,6 @@ class Fetcher(threading.Thread):
                 batch_data_input, batch_data_edge = shift_point_cloud_and_gt(batch_data_input, batch_data_edge,shift_range=0.2)
                 batch_data_clean = batch_data_input.copy()
 
-                # batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.02, clip=0.05)
                 batch_data_input = jitter_perturbation_point_cloud(batch_data_input, sigma=0.005, clip=0.015)
                 batch_data_input = rotate_perturbation_point_cloud(batch_data_input, angle_sigma=0.03, angle_clip=0.09)
 

@@ -8,27 +8,28 @@ from glob import glob
 import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
+from scipy import spatial
 from tqdm import tqdm
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 import data_provider
 import model_utils
-import generator1_upsample2 as MODEL_GEN
+import generator1_upsample2_4d2 as MODEL_GEN
 from data_provider import NUM_EDGE, NUM_FACE
-from GKNN import GKNN
+from GKNN_realscan import GKNN_realscan
 from tf_ops.sampling.tf_sampling import farthest_point_sample
 from utils import pc_util
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--phase', default='test', help='train or test [default: train]')
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
-parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2', help='Log dir [default: log]')
-parser.add_argument('--num_point', type=int, default=1024, help='Point Number [1024/2048] [default: 1024]')
-parser.add_argument('--num_addpoint', type=int, default=96, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
+parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2_4d2', help='Log dir [default: log]')
+parser.add_argument('--num_point', type=int, default=1024*2, help='Point Number [1024/2048] [default: 1024]')
+parser.add_argument('--num_addpoint', type=int, default=96*2*2, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
 parser.add_argument('--is_crop',type= bool, default=True, help='Use cropped points in training [default: False]')
-parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
+parser.add_argument('--max_epoch', type=int, default=100, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
 parser.add_argument('--batch_size', type=int, default=12, help='Batch Size during training [default: 32]') #(512:16 1k:8,is_crop:16)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 parser.add_argument('--assign_model_path',default=None, help='Pre-trained model path [default: None]')
@@ -118,6 +119,7 @@ class Network(object):
 
         # weight = tf.pow(0.98, tf.to_float(tf.div(self.step,200)))
         weight = tf.maximum(0.5 - tf.to_float(self.step) / 20000.0, 0.0)
+        # weight = tf.maximum(0.5 - tf.to_float(self.step) / 200000.0, 0.0)
         self.edgemask = tf.to_float(tf.less_equal(weight * self.edgedist + (1 - weight) * self.pred_edgedist, 0.15))
         # self.edgemask = tf.to_float(tf.less_equal(self.edgedist,0.45))
         self.edge_loss = 50*tf.reduce_sum(self.edgemask * self.edgedist**2 / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1)) / (tf.reduce_sum(self.edgemask) + 1.0)
@@ -181,7 +183,7 @@ class Network(object):
             self.sess.run(init)
 
             # restore the model
-            saver = tf.train.Saver(max_to_keep=6)
+            saver = tf.train.Saver(max_to_keep=10)
             restore_epoch, checkpoint_path = model_utils.pre_load_checkpoint(MODEL_DIR)
             global LOG_FOUT
             if restore_epoch == 0:
@@ -258,7 +260,7 @@ class Network(object):
                 loss_sum = []
 
 
-    def patch_prediction(self, patch_point,sess):
+    def patch_prediction(self, patch_point, sess, ratio, edge_threshold=0.05):
         #normalize the point clouds
         patch_point, centroid, furthest_distance = data_provider.normalize_point_cloud(patch_point)
         new_idx = np.stack((np.zeros((NUM_POINT)).astype(np.int64), np.arange(NUM_POINT)), axis=-1)
@@ -266,7 +268,7 @@ class Network(object):
         pred, pred_edge, pred_edgedist = sess.run([self.pred_coord, self.select_pred_edgecoord, self.select_pred_edgedist],
                                                     feed_dict={self.pointclouds_input: np.expand_dims(patch_point,axis=0),
                                                                self.pointclouds_radius: np.ones(1),
-                                                               # self.edge_threshold: np.asarray([0.1]),
+                                                               self.edge_threshold: np.asarray([edge_threshold])/ratio,
                                                                self.pointclouds_idx: np.expand_dims(new_idx, axis=0)
                                                                })
         # ##calculate the pca of edge
@@ -291,20 +293,21 @@ class Network(object):
         pred_edgedist = pred_edgedist * furthest_distance
         return pred, pred_edge, pred_edgedist
 
-    def patch_prediction_avg(self, patch_point, sess):
+    def patch_prediction_avg(self, patch_point, sess,ratio,edge_threshold=0.05):
         #normalize the point clouds
         patch_point, centroid, furthest_distance = data_provider.normalize_point_cloud(patch_point)
         # print furthest_distance*0.075
         pred_list = []
         pred_edgecoord_list=[]
         pred_edgedist_list = []
-        for iter in xrange(5):
+        for iter in xrange(3):
             idx,new_idx = data_provider.get_inverse_index(patch_point.shape[0])
             new_idx = np.stack((np.zeros((NUM_POINT)).astype(np.int64), new_idx), axis=-1)
             patch_point_input = patch_point[idx].copy()
             pred, pred_edgecoord, pred_edgedist = sess.run([self.pred_coord, self.pred_coord, self.pred_dist],
                                                         feed_dict={self.pointclouds_input: np.expand_dims(patch_point_input,axis=0),
                                                                    self.pointclouds_radius: np.ones(1),
+                                                                   self.edge_threshold: np.asarray([edge_threshold]) / ratio,
                                                                    self.pointclouds_idx: np.expand_dims(new_idx,axis=0)
                                                                    })
             pred_list.append(pred)
@@ -316,22 +319,161 @@ class Network(object):
         pred_edgedist = np.asarray(pred_edgedist_list).mean(axis=0)
 
         idx = np.argsort(pred_edgedist,axis=-1)
-        pred_edgedist = pred_edgedist[0][idx[0,:60]]
-        pred_edgecoord = pred_edgecoord[0][idx[0,:60]]
-        pred_edgecoord = pred_edgecoord[pred_edgedist<0.05] #0.015 / furthest_distance
-        pred_edgedist = pred_edgedist[pred_edgedist<0.05]
+        pred_edgedist = pred_edgedist[0][idx[0,:NUM_ADDPOINT]]
+        pred_edgecoord = pred_edgecoord[0][idx[0,:NUM_ADDPOINT]]
+        pred_edgecoord = pred_edgecoord[pred_edgedist<edge_threshold/ratio] #0.015 / furthest_distance
+        pred_edgedist = pred_edgedist[pred_edgedist<edge_threshold/ratio]
 
         pred = np.squeeze(centroid + pred * furthest_distance, axis=0)
         pred_edgecoord = centroid + pred_edgecoord * furthest_distance
         pred_edgedist = pred_edgedist * furthest_distance
         return pred, pred_edgecoord, pred_edgedist
 
+    def pc_prediction(self, gm, sess, patch_num_ratio=3, edge_threshold=0.05, edge=None):
+        ## get patch seed from farthestsampling
+        points = tf.convert_to_tensor(np.expand_dims(gm.data,axis=0),dtype=tf.float32)
+        start= time.time()
+        seed1_num = int(gm.data.shape[0] / (NUM_POINT/8) * patch_num_ratio)
+
+        ## FPS sampling
+        seed = farthest_point_sample(seed1_num*2, points).eval()[0]
+        seed_list = seed[:seed1_num]
+        print "farthest distance sampling cost", time.time() - start
+
+        if edge is None:
+            ratios = np.random.uniform(1.0,1.0,size=[seed1_num])
+        else:
+            edge_tree = spatial.cKDTree(edge)
+            seed_data = gm.data[np.asarray(seed_list)]
+            seed_tree = spatial.cKDTree(seed_data)
+            indics = seed_tree.query_ball_tree(edge_tree,r=0.02)
+            ratios = []
+            cnt = 0
+            for item in indics:
+                if len(item)>=3:
+                    #ratios.append(np.random.uniform(1.0,2.0))
+                    ratios.append(1.0)
+                    cnt = cnt + 1
+                else:
+                    # ratios.append(np.random.uniform(1.0,3.0))
+                    ratios.append(3.0)
+            print "total %d edge patch"%(cnt)
+        ######
+        mm1 = {}
+        mm2 = {}
+        mm3 = {}
+        # for i in xrange(gm.data.shape[0]):
+        for i in xrange(100):
+            mm1[i]=[]
+            mm2[i]=[]
+            mm3[i]=[]
+        ######
+        input_list = []
+        up_point_list=[]
+        up_edge_list = []
+        up_edgedist_list = []
+        fail = 0
+        for seed,ratio in tqdm(zip(seed_list,ratios)):
+            try:
+                patch_size = int(NUM_POINT * ratio)
+                idx = np.asarray(gm.bfs_knn(seed,patch_size))
+                if len(idx)<NUM_POINT:
+                    fail = fail + 1
+                    continue
+                idx1 = np.random.permutation(idx.shape[0])[:NUM_POINT]
+                idx1.sort()
+                idx = idx[idx1]
+                point = gm.data[idx]
+            except:
+                fail= fail+1
+                continue
+            up_point,up_edgepoint,up_edgedist = self.patch_prediction(point, sess,ratio,edge_threshold)
+
+            # ## handle with the points of same point
+            # for cnt, item in enumerate(idx[:128]):
+            #     if item <10000:
+            #         mm1[item].append(up_point[cnt])
+            #         mm2[item].append(up_point[cnt+128])
+            #         mm3[item].append(up_point[cnt+128*2])
+            #         # mm[item].append(up_point[cnt+128*3])
+            # ########
+            input_list.append(point)
+            up_point_list.append(up_point)
+            up_edge_list.append(up_edgepoint)
+            up_edgedist_list.append(up_edgedist)
+        print "total %d fails" % fail
+
+        # ##
+        # colors = np.random.randint(0,255,(10000,3))
+        # color_point = []
+        # for item in mm1.keys():
+        #     aa = np.asarray(mm1[item])
+        #     if len(aa)==0:
+        #         continue
+        #     aa = np.concatenate([aa,np.tile(colors[item],(len(aa),1))],axis=-1)
+        #     color_point.extend(aa)
+        # color_point = np.asarray(color_point)
+        # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'1.txt',color_point)
+        #
+        # color_point = []
+        # for item in mm2.keys():
+        #     aa = np.asarray(mm2[item])
+        #     if len(aa) == 0:
+        #         continue
+        #     aa = np.concatenate([aa, np.tile(colors[item], (len(aa), 1))], axis=-1)
+        #     color_point.extend(aa)
+        # color_point = np.asarray(color_point)
+        # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'2.txt', color_point)
+        #
+        # color_point = []
+        # for item in mm3.keys():
+        #     aa = np.asarray(mm3[item])
+        #     if len(aa) == 0:
+        #         continue
+        #     aa = np.concatenate([aa, np.tile(colors[item], (len(aa), 1))], axis=-1)
+        #     color_point.extend(aa)
+        # color_point = np.asarray(color_point)
+        # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'3.txt', color_point)
+        # ##
+
+        input = np.concatenate(input_list,axis=0)
+        pred = np.concatenate(up_point_list,axis=0)
+
+        pred_edge = np.concatenate(up_edge_list, axis=0)
+        print "total %d edgepoint" % pred_edge.shape[0]
+        pred_edgedist = np.concatenate(up_edgedist_list,axis=0)
+        rgba = data_provider.convert_dist2rgba(pred_edgedist, scale=10)
+        pred_edge = np.hstack((pred_edge, rgba, pred_edgedist.reshape(-1, 1)))
+
+        return input, pred, pred_edge
+
+        # t1 = time.time()
+        # edge_dist = np.zeros(pred_edge.shape[0])
+        # for sid in range(0,pred_edge.shape[0],20000):
+        #     eid = np.minimum(pred_edge.shape[0],sid+20000)
+        #     tf_point = tf.placeholder(tf.float32,[1,eid-sid,3])
+        #     tf_edge = tf.placeholder(tf.float32,[1,gm.edge.shape[0],6])
+        #     pred_edge_dist_tf = model_utils.distance_point2edge(tf_point,tf_edge)
+        #     pred_edge_dist_tf = tf.sqrt(tf.reduce_min(pred_edge_dist_tf, axis=-1))
+        #     edge_dist[sid:eid] = sess.run(pred_edge_dist_tf,feed_dict={tf_point:np.expand_dims(pred_edge[sid:eid], axis=0),
+        #                                                                tf_edge:np.expand_dims(gm.edge, axis=0)})
+        # t2 = time.time()
+        # print "tf time %f"%(t2-t1)
+        # rgba = data_provider.convert_dist2rgba(edge_dist, scale=10)
+        # path = os.path.join(save_path, point_path.split('/')[-1][:-4] + "_outputedgeerror.ply")
+        # data_provider.save_ply(path, np.hstack((pred_edge, rgba, edge_dist.reshape(-1, 1))))
+
+
     def test_hierarical_prediction(self):
         data_folder = '../../PointSR_data/virtualscan/chair_test1/*_noise_half.xyz'
-        data_folder = '../../PointSR_data/rawscan/*norm.xyz'
+        # data_folder = '../../PointSR_data/rawscan/aaa.xyz'
         # data_folder = '/home/lqyu/chair/tmp.xyz'
         phase = data_folder.split('/')[-3]+"_"+data_folder.split('/')[-2]
-        save_path = os.path.join(MODEL_DIR, 'result/' + phase+'_1024')
+        save_path = os.path.join(MODEL_DIR, 'result/' + 'halfnoise_'+ phase+'_512_0.05_dynamic_96')
+
+        data_folder = '../../PointSR_data/realscan/ToyTurtle_clean_simply_simply.xyz'
+        save_path = os.path.join('../../PointSR_data/tmp/realscan_simply_simply_residual_2048_0.05')
+
         self.saver = tf.train.Saver()
         _, restore_model_path = model_utils.pre_load_checkpoint(MODEL_DIR)
         print restore_model_path
@@ -350,121 +492,27 @@ class Network(object):
                 edge_path = point_path.replace('new_simu_noise', 'mesh_edge').replace('_noise_double.xyz', '_edge.xyz')
                 edge_path = None
                 print point_path, edge_path
-                gm = GKNN(point_path, edge_path, patch_size=NUM_POINT, patch_num=30,add_noise=False,normalization=False)
-                ## get patch seed from farthestsampling
-                points = tf.convert_to_tensor(np.expand_dims(gm.data,axis=0),dtype=tf.float32)
-                start= time.time()
-                seed1_num = int(gm.data.shape[0] / (NUM_POINT/8) *1.2)
-                seed = farthest_point_sample(seed1_num*2, points).eval()[0]
-                print "farthest distance sampling cost", time.time() - start
-                seed_list = seed[:seed1_num]
-                ######
-                mm1 = {}
-                mm2 = {}
-                mm3 = {}
-                # for i in xrange(gm.data.shape[0]):
-                for i in xrange(10000):
-                    mm1[i]=[]
-                    mm2[i]=[]
-                    mm3[i]=[]
-                ######
-                up_point_list=[]
-                up_edge_list = []
-                up_edgedist_list = []
-                fail = 0
-                for seed in tqdm(seed_list):
-                    try:
-                        patch_size = int(NUM_POINT * np.random.uniform(1.0,3.0))
-                        idx = np.asarray(gm.bfs_knn(seed,patch_size))
-                        idx1 = np.random.permutation(patch_size)[:NUM_POINT]
-                        idx1.sort()
-                        idx = idx[idx1]
-                        point = gm.data[idx]
-                    except:
-                        fail= fail+1
-                        continue
-                    up_point,up_edgepoint,up_edgedist = self.patch_prediction(point, sess)
+                gm = GKNN_realscan(point_path, edge_path, patch_size=NUM_POINT, patch_num=30,add_noise=False,normalization=False)
 
-                    # ## handle with the points of same point
-                    # for cnt, item in enumerate(idx[:128]):
-                    #     if item <10000:
-                    #         mm1[item].append(up_point[cnt])
-                    #         mm2[item].append(up_point[cnt+128])
-                    #         mm3[item].append(up_point[cnt+128*2])
-                    #         # mm[item].append(up_point[cnt+128*3])
-                    # ########
-                    up_point_list.append(up_point)
-                    up_edge_list.append(up_edgepoint)
-                    up_edgedist_list.append(up_edgedist)
-                print "total %d fails" % fail
+                ##get the edge information
+                _,pred,pred_edge = self.pc_prediction(gm,sess,patch_num_ratio=3, edge_threshold=0.05)
 
-                # ##
-                # colors = np.random.randint(0,255,(10000,3))
-                # color_point = []
-                # for item in mm1.keys():
-                #     aa = np.asarray(mm1[item])
-                #     if len(aa)==0:
-                #         continue
-                #     aa = np.concatenate([aa,np.tile(colors[item],(len(aa),1))],axis=-1)
-                #     color_point.extend(aa)
-                # color_point = np.asarray(color_point)
-                # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'1.txt',color_point)
-                #
-                # color_point = []
-                # for item in mm2.keys():
-                #     aa = np.asarray(mm2[item])
-                #     if len(aa) == 0:
-                #         continue
-                #     aa = np.concatenate([aa, np.tile(colors[item], (len(aa), 1))], axis=-1)
-                #     color_point.extend(aa)
-                # color_point = np.asarray(color_point)
-                # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'2.txt', color_point)
-                #
-                # color_point = []
-                # for item in mm3.keys():
-                #     aa = np.asarray(mm3[item])
-                #     if len(aa) == 0:
-                #         continue
-                #     aa = np.concatenate([aa, np.tile(colors[item], (len(aa), 1))], axis=-1)
-                #     color_point.extend(aa)
-                # color_point = np.asarray(color_point)
-                # data_provider.save_xyz('/home/lqyu/server/proj49/PointSR2/'+point_path.split('/')[-1][:-4] +'3.txt', color_point)
-                # ##
+                ## re-prediction with edge information
+                # input, pred,pred_edge = self.pc_prediction(gm,sess,patch_num_ratio=3, edge_threshold=0.05,edge=pred_edge[:,0:3])
 
                 path = os.path.join(save_path, point_path.split('/')[-1][:-4] + "_input.xyz")
                 data_provider.save_xyz(path, gm.data)
 
-                pred = np.concatenate(up_point_list,axis=0)
                 path = os.path.join(save_path, point_path.split('/')[-1][:-4] + "_output.xyz")
                 data_provider.save_xyz(path, pred)
 
-                pred_edge = np.concatenate(up_edge_list, axis=0)
-                print "total %d edgepoint" % pred_edge.shape[0]
-                pred_edgedist = np.concatenate(up_edgedist_list,axis=0)
-                rgba = data_provider.convert_dist2rgba(pred_edgedist, scale=10)
                 path = os.path.join(save_path, point_path.split('/')[-1][:-4] + "_outputedge.ply")
-                data_provider.save_ply(path, np.hstack((pred_edge, rgba, pred_edgedist.reshape(-1, 1))))
+                data_provider.save_ply(path, pred_edge)
 
-                if edge_path is not None:
-                    t1 = time.time()
-                    edge_dist = np.zeros(pred_edge.shape[0])
-                    for sid in range(0,pred_edge.shape[0],20000):
-                        eid = np.minimum(pred_edge.shape[0],sid+20000)
-                        tf_point = tf.placeholder(tf.float32,[1,eid-sid,3])
-                        tf_edge = tf.placeholder(tf.float32,[1,gm.edge.shape[0],6])
-                        pred_edge_dist_tf = model_utils.distance_point2edge(tf_point,tf_edge)
-                        pred_edge_dist_tf = tf.sqrt(tf.reduce_min(pred_edge_dist_tf, axis=-1))
-                        edge_dist[sid:eid] = sess.run(pred_edge_dist_tf,feed_dict={tf_point:np.expand_dims(pred_edge[sid:eid], axis=0),
-                                                                                   tf_edge:np.expand_dims(gm.edge, axis=0)})
-                    t2 = time.time()
-                    print "tf time %f"%(t2-t1)
-                    rgba = data_provider.convert_dist2rgba(edge_dist, scale=10)
-                    path = os.path.join(save_path, point_path.split('/')[-1][:-4] + "_outputedgeerror.ply")
-                    data_provider.save_ply(path, np.hstack((pred_edge, rgba, edge_dist.reshape(-1, 1))))
             print total_time/len(samples)
 
 
-    def test(self,show=False,use_normal=False):
+    def test(self, show=False, use_normal=False):
         data_folder = '../../PointSR_data/CAD/mesh_MC16k'
         phase = data_folder.split('/')[-2]+data_folder.split('/')[-1]
         save_path = os.path.join(MODEL_DIR, 'result/' + phase)

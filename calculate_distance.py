@@ -1,8 +1,16 @@
+import os
 import time
 
 import numpy as np
 import tensorflow as tf
+from scipy import spatial
 from matplotlib import pyplot as plt
+
+
+from tf_ops.CD import tf_nndistance
+from tf_ops.emd import tf_auctionmatch
+from tf_ops.grouping.tf_grouping import query_ball_point, group_point, knn_point
+from tf_ops.sampling import tf_sampling
 
 
 def distance_point2edge(points, edges):
@@ -363,7 +371,7 @@ def calculate_surf_distance(point_path, mesh_path):
     dist = np.asarray(dist)
     dist = np.reshape(dist,[-1,1])[:point_num]
     print np.mean(dist),np.std(dist)
-    np.savetxt('dist.txt',dist,fmt='%.6f')
+    np.savetxt('optimized_120_dist.txt',dist,fmt='%.6f')
     plt.hist(dist,bins=100)
     plt.show()
     return
@@ -403,17 +411,17 @@ def calculate_edge_distance(point_path, edge_path):
 
     dist = np.asarray(dist)
     dist = np.reshape(dist,[-1,1])[:point_num]
-    np.savetxt('dist.txt',dist,fmt='%.6f')
+    np.savetxt('optimized_50_edge_dist.txt',dist,fmt='%.6f')
     plt.hist(dist,bins=100)
     plt.show()
     return
 
 if __name__ == '__main__':
-    point_path = '/home/lqyu/server/proj49/PointSR_data/CAD_imperfect/mesh_simu_pc/1_noise.xyz'
-    edge_path = ''
-    mesh_path = '/home/lqyu/server/proj49/PointSR_data/CAD_imperfect/mesh/1.off'
-    # calculate_edge_distance(point_path,edge_path)
-    calculate_surf_distance(point_path,mesh_path)
+    point_path = '/data/xzli/PointSR2/monitor/monitor_50_denoisedEdge_10.xyz'
+    edge_path = '/data/xzli/PointSR2/monitor/edgePts.xyz'
+    mesh_path = '/data/xzli/PointSR2/monitor/monitor_1.off'
+    calculate_edge_distance(point_path,edge_path)
+    # calculate_surf_distance(point_path,mesh_path)
 
     # point = tf.constant(np.array([0.5, -0.3, 0.5]),tf.float32)
     # tri   = tf.constant(np.array(np.array([[0,-1,0],[1,0,0],[0,0,0]])),tf.float32)

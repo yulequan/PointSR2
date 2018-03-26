@@ -73,7 +73,7 @@ def sampling_from_face(face):
     points = np.concatenate(points,axis=0)
     return points
 
-class GKNN():
+class GKNN_realscan():
     def __init__(self, point_path, edge_path=None, mesh_path=None, patch_size=1024, patch_num=30, clean_point_path = None,
                  normalization=False, add_noise=False):
         print point_path,edge_path,mesh_path
@@ -135,22 +135,22 @@ class GKNN():
         start = time.time()
         self.nbrs = spatial.cKDTree(self.clean_data)
         # dists,idxs = self.nbrs.query(self.clean_data,k=6,distance_upper_bound=0.2)
-        dists,idxs = self.nbrs.query(self.clean_data,k=16)
+        dists,idxs = self.nbrs.query(self.clean_data,k=10)
         self.graph=[]
         for item,dist in zip(idxs,dists):
-            item = item[dist<0.07] #use 0.03 for chair7 model; otherwise use 0.05
+            # item = item[dist<0.07] #use 0.03 for chair7 model; otherwise use 0.05
             self.graph.append(set(item))
         print "Build the graph cost %f second" % (time.time() - start)
 
-        self.graph2 = pygraph.classes.graph.graph()
-        self.graph2.add_nodes(xrange(len(self.clean_data)))
-        sid = 0
-        for idx, dist in zip(idxs, dists):
-            for eid, d in zip(idx, dist):
-                if not self.graph2.has_edge((sid, eid)) and eid < len(self.clean_data):
-                    self.graph2.add_edge((sid, eid), d)
-            sid = sid + 1
-        print "Build the graph cost %f second" % (time.time() - start)
+        # self.graph2 = pygraph.classes.graph.graph()
+        # self.graph2.add_nodes(xrange(len(self.clean_data)))
+        # sid = 0
+        # for idx, dist in zip(idxs, dists):
+        #     for eid, d in zip(idx, dist):
+        #         if not self.graph2.has_edge((sid, eid)) and eid < len(self.clean_data):
+        #             self.graph2.add_edge((sid, eid), d)
+        #     sid = sid + 1
+        # print "Build the graph cost %f second" % (time.time() - start)
 
         return
 
@@ -261,7 +261,7 @@ class GKNN():
         # subface = self.face[np.sum(dist<threshold,axis=0)>=2]
         return subface
 
-    def crop_patch(self, save_root_path, use_dijkstra=True, id=0, scale_ratio=1,random_ratio=0.7,cal_edge=False):
+    def crop_patch(self, save_root_path, use_dijkstra=True, id=0, scale_ratio=1,random_ratio=0.7):
         if save_root_path[-1]=='/':
             save_root_path = save_root_path[:-1]
         if not os.path.exists(save_root_path):
@@ -309,31 +309,23 @@ class GKNN():
             idx = idx[idxx]
             point = self.data[idx]
             clean_point = self.clean_data[idx]
-            if cal_edge:
-                t1 = time.time()
-                edge_dist,face_dist = self.sess.run([tf_edge_dist,tf_face_dist],feed_dict={tf_point: np.expand_dims(clean_point, axis=0),
-                                                                                           tf_edge: np.expand_dims(self.edge, axis=0),
-                                                                                           tf_face: np.expand_dims(self.face, axis=0)})
-                subedge = self.get_subedge(edge_dist)
-                subface = self.get_subface(face_dist)
-                dist_min = np.reshape(np.min(edge_dist, axis=-1), [-1, 1])
-            else:
-                subedge = np.asarray([[10,10,10,20,20,20]])
-                subface = np.asarray([[10,10,10,20,20,20,30,30,30]])
-                dist_min=np.zeros((point.shape[0],1))
+            t1 = time.time()
+            edge_dist,face_dist = self.sess.run([tf_edge_dist,tf_face_dist],feed_dict={tf_point: np.expand_dims(clean_point, axis=0),
+                                                                                       tf_edge: np.expand_dims(self.edge, axis=0),
+                                                                                       tf_face: np.expand_dims(self.face, axis=0)})
+            subedge = self.get_subedge(edge_dist)
+            subface = self.get_subface(face_dist)
             t2 = time.time()
             # print t1-t0, t2-t1
             print "patch:%d  point:%d  subedge:%d  subface:%d" % (i, patch_size, len(subedge),len(subface))
 
-
+            dist_min = np.reshape(np.min(edge_dist, axis=-1),[-1,1])
             np.savetxt('%s/%s_%d.xyz' % (save_root_path, self.name, i), point, fmt='%0.6f')
             np.savetxt('%s_dist/%s_%d.xyz' % (save_root_path,self.name, i), np.concatenate([point,dist_min],axis=-1), fmt='%0.6f')
             np.savetxt('%s_edge/%s_%d.xyz' % (save_root_path, self.name, i), subedge,fmt='%0.6f')
             np.savetxt('%s_edgepoint/%s_%d.xyz' % (save_root_path, self.name, i), sampling_from_edge(subedge),fmt='%0.6f')
             np.savetxt('%s_face/%s_%d.xyz' % (save_root_path, self.name, i), subface, fmt='%0.6f')
             np.savetxt('%s_facepoint/%s_%d.xyz' % (save_root_path, self.name, i), sampling_from_face(subface), fmt='%0.6f')
-
-
 
             # np.savetxt('%s/%s_%d.xyz' % (save_root_path, self.name, i), point, fmt='%0.6f')
             # np.savetxt('%s/%s_%d_dist.xyz' % (save_root_path, self.name, i), np.concatenate([point, dist_min], axis=-1),

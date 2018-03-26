@@ -8,19 +8,17 @@ from glob import glob
 from multiprocessing.dummy import Pool as ThreadPool
 from random import shuffle
 from subprocess import Popen
-
 import h5py
 import numpy as np
 from tqdm import tqdm
-
 from GKNN import GKNN
 
 NUM_EDGE = 120
 NUM_FACE = 800
 
 
-# NUM_EDGE = 80
-# NUM_FACE = 800
+#NUM_EDGE = 50
+#NUM_FACE = 300
 
 class Mesh:
     def __init__(self):
@@ -96,6 +94,8 @@ class Mesh:
                     print "ERROR: This OFF loader can only handle meshes with 3 vertex faces."
                     print "A face with", XYZ[0], "vertices is included in the file. Exiting."
                     sys.exit(0)
+            self.nVerts = len(self.verts)
+            self.nFaces = len(self.faces)
         else:
             for vertLine in vertLines:
                 XYZ = vertLine.split()
@@ -110,13 +110,23 @@ class Mesh:
             self.nVerts = len(self.verts)
             self.nFaces = len(self.faces)
 
+        # unique_id = np.unique(np.asarray(self.faces))
+        # self.verts = np.asarray(self.verts)
+        # self.verts = self.verts[unique_id]
+        # for item in xrange(self.nFaces):
+        #     aa = self.faces[item]
+        #     bb = [np.where(unique_id==aa[0])[0][0],np.where(unique_id==aa[1])[0][0],np.where(unique_id==aa[2])[0][0]]
+        #     self.faces[item] = bb
+        # self.nVerts = len(self.verts)
+        # self.nFaces = len(self.faces)
+
         if is_normalized:
             #normalize vertices
             self.verts = np.asarray(self.verts)
-            centroid = np.mean(self.verts,axis=0,keepdims=True)
-            self.verts = self.verts-centroid
-            furthest_dist = np.amax(np.sqrt(np.sum(self.verts*self.verts,axis=1)))
-            self.verts = self.verts/furthest_dist
+            self.centroid = np.mean(self.verts,axis=0,keepdims=True)
+            self.verts = self.verts-self.centroid
+            self.furthest_dist = np.amax(np.sqrt(np.sum(self.verts*self.verts,axis=1)))
+            self.verts = self.verts/self.furthest_dist
 
 
     def buildGraph(self):
@@ -142,6 +152,7 @@ class Mesh:
             if not(j in self.graph[k]):
                 self.graph[k].add(j)
         return self.graph
+
 
 
     def write2OffFile(self,path):
@@ -240,6 +251,34 @@ class Mesh:
         print "Total %d submeshes"%(len(submeshes))
 
 
+def read_annotation_boxes(path):
+    name = path.split()[-1][:-4]
+    f = open(path, 'r')
+    lines = f.readlines()
+    f.close()
+
+    verts = []
+    for item in lines:
+        if item[0] == 'v':
+            XYZ = item.split()[1:]
+            verts.append([float(XYZ[0]), float(XYZ[1]), float(XYZ[2])])
+    verts = np.asarray(verts)
+
+    boxes = []
+    points = []
+    for line_iter in xrange(len(lines)):
+        if 'g Box' in lines[line_iter]:
+            box = []
+            for i in xrange(6):
+                vertex = lines[line_iter + i + 1].split()[1:]
+                vertex = [int(item) - 1 for item in vertex]
+                box.append([verts[vertex[0]], verts[vertex[1]], verts[vertex[2]], verts[vertex[3]]])
+            boxes.append(box)
+    boxes = np.asarray(boxes)
+
+    boxes = np.asarray(boxes)  # (n,6,4,3)
+    return boxes
+
 def preprocessing_data_fn(path):
     save_path = '223_OfficeEquipment_off_pre/'
     if not os.path.exists(save_path):
@@ -264,6 +303,8 @@ def preprocessing_data():
     print len(file_list)
     pool = ThreadPool(4)
     pool.map(preprocessing_data_fn, file_list)
+
+
 
 def read_face(path):
     with open(path,'r') as f:
@@ -299,61 +340,7 @@ def get_file_list(filter_path=True):
 
 
 def save_h5():
-    file_names = get_file_list(filter_path=True)
-    mc8k_inputs = []
-    mc8k_dists = []
-    edge_points = []
-    edges = []
-    faces = []
-    names = []
-    for item in tqdm(file_names):
-        name = item.split('/')[-1][:-4]
-        try:
-            face = read_face(item)
-            data = np.loadtxt('mesh_MC8k_dist/'+name + "_dist.txt")
-            edge_point = np.loadtxt('mesh_edgePoint/'+ name + "_edgepoint.xyz")
-            edge = np.loadtxt('mesh_edge/'+name + "_edge.xyz")
-        except:
-            print name
-            continue
-        if edge_point.shape[0]==0 or data.shape[0]==0 or edge.shape[0]==0:
-            print "empty", name
-            continue
-        if len(edge.shape) == 1:
-            edge = np.reshape(edge,[1,-1])
-
-        mc8k_inputs.append(data[:, 0:3])
-        mc8k_dists.append(data[:, 3])
-
-        l = len(face)
-        idx = range(l) * (500 / l) + list(np.random.permutation(l)[:500 % l])
-        faces.append(face[idx])
-
-        l = len(edge_point)
-        idx = range(l) * (2000 / l) + list(np.random.permutation(l)[:2000 % l])
-        edge_points.append(edge_point[idx])
-
-        idx = np.all(edge[:, 0:3] == edge[:, 3:6], axis=-1)
-        edge = edge[idx==False]
-        l = len(edge)
-        idx = range(l)*(1000/l)+ list(np.random.permutation(l)[:1000%l])
-        edges.append(edge[idx])
-
-        names.append(name)
-
-    h5_filename = '../../PointSR_h5data/ModelNet40.h5'
-    h5_fout = h5py.File(h5_filename)
-    h5_fout.create_dataset('mc8k_input', data=mc8k_inputs, compression='gzip', compression_opts=4,dtype=np.float32)
-    h5_fout.create_dataset('mc8k_dist', data=mc8k_dists, compression='gzip', compression_opts=4, dtype=np.float32)
-    h5_fout.create_dataset('edge', data=edges, compression='gzip', compression_opts=4, dtype=np.float32)
-    h5_fout.create_dataset('edge_points', data=edge_points, compression='gzip', compression_opts=4, dtype=np.float32)
-    h5_fout.create_dataset('faces', data=faces, compression='gzip', compression_opts=4, dtype=np.float32)
-    string_dt = h5py.special_dtype(vlen=str)
-    h5_fout.create_dataset('name', data=names, compression='gzip', compression_opts=1, dtype=string_dt)
-    h5_fout.close()
-
-def save_h5_2():
-    file_list = glob('../../PointSR_data/CAD_imperfect/patch1k_curve_halfnoise/*.xyz')
+    file_list = glob('./patch4k/nonoise/*.xyz')
     file_list.sort()
     # file_list1 = glob('../../PointSR_data/virtualscan/patch1k_halfnoise/*.xyz')
     # file_list1.sort()
@@ -368,10 +355,10 @@ def save_h5_2():
     for item in tqdm(file_list):
         name = item.split('/')[-1]
         try:
-            data = np.loadtxt(item.replace('patch1k_curve_halfnoise','patch1k_curve_halfnoise_dist'))
-            edge = np.loadtxt(item.replace('patch1k_curve_halfnoise','patch1k_curve_halfnoise_edge') )
-            edge_point = np.loadtxt(item.replace('patch1k_curve_halfnoise','patch1k_curve_halfnoise_edgepoint'))
-            face = np.loadtxt(item.replace('patch1k_curve_halfnoise','patch1k_curve_halfnoise_face'))
+            data = np.loadtxt(item.replace('nonoise','nonoise_dist'))
+            edge = np.loadtxt(item.replace('nonoise','nonoise_edge') )
+            edge_point = np.loadtxt(item.replace('nonoise','nonoise_edgepoint'))
+            face = np.loadtxt(item.replace('nonoise','nonoise_face'))
             # data = np.loadtxt('patch1k_noise_dist/'+name )
             # edge = np.loadtxt('patch1k_noise_edge/'+name )
             # edge_point = np.loadtxt('patch1k_noise_edgepoint/'+name)
@@ -411,7 +398,7 @@ def save_h5_2():
     faces = np.asarray(faces)
     print len(names)
 
-    h5_filename = '../../PointSR_h5data/CAD_curve_halfnoise.h5'
+    h5_filename = '../../h5data/PUNet_nohole_data_%d_%d.h5'%(NUM_EDGE,NUM_FACE)
     h5_fout = h5py.File(h5_filename)
     h5_fout.create_dataset('mc8k_input', data=mc8k_inputs, compression='gzip', compression_opts=4,dtype=np.float32)
     h5_fout.create_dataset('mc8k_dist', data=mc8k_dists, compression='gzip', compression_opts=4, dtype=np.float32)
@@ -439,26 +426,34 @@ def crop_patch(file):
     sts = Popen(cmd, shell=True).wait()
 
 ids = [1,1,1,1,1,1]
-ids = [2,2,2,2,2,2]
+ids = [0,2,4,5,6,6,5,4,2,0]
 def crop_patch_from_wholepointcloud(off_path):
     current = multiprocessing.current_process()
     id = int(current.name.split('-')[-1])
-    print off_path
 
-    point_path = './mesh_simu_pc/' + off_path.split('/')[-1][:-4] + '_noise_half.xyz'
-    edge_path = './mesh_edge_curve/' + off_path.split('/')[-1][:-4] + '_edge.xyz'
+    print off_path
+    point_path = './mesh_simu_pc/' + off_path.split('/')[-1][:-4] + '_no_noise.xyz'
+    edge_path = './mesh_edge/' + off_path.split('/')[-1][:-4] + '_edge.xyz'
 
     if not os.path.exists(edge_path):
         return
-    save_root_path = './patch1k_curve_halfnoise'
+    save_root_path = './patch4k/nonoise'
     if 'chair' in off_path or 'bookshelf' in off_path:
         patch_num = 100
-        scale = 1.5
+        scale = 1.0
     else:
         patch_num = 50
-        scale = 1.5
-    gm = GKNN(point_path, edge_path, off_path, patch_size=1024, patch_num=patch_num)  #CAD is 50 annotated is 100
-    gm.crop_patch(save_root_path,id=ids[id-1],scale_ratio=scale)  #CAD 2.5 annotate 2
+        scale = 1.0
+
+    gm = GKNN(point_path, edge_path, off_path, patch_size=1024*4, patch_num=patch_num)  #CAD is 50 annotated is 100
+    gm.crop_patch(save_root_path,id=ids[id-1],scale_ratio=scale,random_ratio=0.5)  #CAD 2.5 annotate 2
+    # boxes_path = './corner/' + off_path.split('/')[-1][:-4] + '.obj'
+    # if not os.path.exists(boxes_path):
+    #     boxes = None
+    #     gm.patch_num = 50
+    # else:
+    #     boxes = read_annotation_boxes(boxes_path)
+    # gm.crop_patch_boxes(save_root_path, boxes=boxes, id=ids[id-1],scale_ratio=scale,random_ratio=0.8)  #CAD 2.5 annotate 2
 
 def MC_sample(file):
     save_path = './newtest_MC30k/'
@@ -487,7 +482,7 @@ def find_edge(file):
         print "!!!!!Cannot handle %s"%file
 
 def handle_patch(filter_path=False):
-    os.chdir('../../PointSR_data/CAD_imperfect')
+    # os.chdir('../../PointSR_data/Edgedirection')
     new_file_list = get_file_list(filter_path)
     new_file_list = glob('./mesh/*.off')
     # new_file_list = glob('mesh_MC500k/*.xyz')
@@ -495,7 +490,7 @@ def handle_patch(filter_path=False):
     # for item in new_file_list:
     #     crop_patch_from_wholepointcloud(item)
 
-    pool = multiprocessing.Pool(4)
+    pool = multiprocessing.Pool(10)
     pool.map(crop_patch_from_wholepointcloud, new_file_list)
 
 def change_shapenet_name():
@@ -515,12 +510,12 @@ def change_shapenet_name():
 
 if __name__ == '__main__':
     np.random.seed(int(time.time()))
-    # os.chdir('../../PointSR_data/CAD_imperfect')
+    os.chdir('../data/traindata')
     #
     #change_shapenet_name()
     # preprocessing_data()
-    # handle_patch()
-    save_h5_2()
+    #handle_patch()
+    save_h5()
     #preprocessing_data_fn(None)
     #m = Mesh()
     #m.remove_redundent('/home/lqyu/server/proj49/third_party/chair.off', '/home/lqyu/server/proj49/third_party/chair_normalized.off')

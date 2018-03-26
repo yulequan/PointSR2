@@ -26,10 +26,10 @@ parser.add_argument('--phase', default='test', help='train or test [default: tra
 parser.add_argument('--gpu', default='0', help='GPU to use [default: GPU 0]')
 parser.add_argument('--log_dir', default='../model/NEWVirtualscan_generator1_1k_crop_l2_4d2', help='Log dir [default: log]')
 parser.add_argument('--num_point', type=int, default=1024, help='Point Number [1024/2048] [default: 1024]')
-parser.add_argument('--num_addpoint', type=int, default=96*2, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96?
+parser.add_argument('--num_addpoint', type=int, default=96, help='Add Point Number [default: 600]')# train(1k) is 512, test is 96 or 96*2?
 parser.add_argument('--up_ratio',  type=int,  default=4,   help='Upsampling Ratio [default: 2]')
 parser.add_argument('--is_crop',type= bool, default=True, help='Use cropped points in training [default: False]')
-parser.add_argument('--max_epoch', type=int, default=300, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
+parser.add_argument('--max_epoch', type=int, default=200, help='Epoch to run [default: 500]')  #(nocrop:180 crop:200)
 parser.add_argument('--batch_size', type=int, default=12, help='Batch Size during training [default: 32]') #(512:16 1k:8,is_crop:16)
 parser.add_argument('--learning_rate', type=float, default=0.001)
 parser.add_argument('--assign_model_path',default=None, help='Pre-trained model path [default: None]')
@@ -92,20 +92,10 @@ class Network(object):
 
         # ## The following code is okay when the batch size is 1
         self.edge_threshold = tf.constant(0.05,tf.float32,[1]) # select a small value when use 1k points
-        if True:
-            indics = tf.where(tf.less_equal(self.pred_edgedist,self.edge_threshold)) #(?,2)
-            self.select_pred_edgecoord = tf.gather_nd(self.pred_edgecoord, indics) #(?,3)
-            self.select_pred_edgedist  = tf.gather_nd(self.pred_edgedist, indics) #(?,3)
-        else:
-            indics = tf.where(tf.less_equal(self.pointclouds_dist_truncated, self.edge_threshold))  # (?,2)
-            self.select_pred_edgecoord = tf.gather_nd(self.pred_coord, indics)  # (?,3)
-            self.select_pred_edgedist = tf.gather_nd(self.pred_dist, indics)  # (?,3)
-        # if is_training is False:
-        #     input_dist = model_utils.distance_point2edge(self.pointclouds_input,self.pointclouds_edge)
-        #     input_dist = tf.sqrt(tf.reduce_min(input_dist,axis=-1))
-        #     indics = tf.where(tf.less_equal(input_dist,self.edge_threshold))
-        #     self.select_input_edge = tf.gather_nd(self.pointclouds_input, indics)
-        #     self.select_input_edgedist  = tf.gather_nd(input_dist,indics)
+        indics = tf.where(tf.less_equal(self.pred_edgedist,self.edge_threshold)) #(?,2)
+        self.select_pred_edgecoord = tf.gather_nd(self.pred_edgecoord, indics) #(?,3)
+        self.select_pred_edgedist  = tf.gather_nd(self.pred_edgedist, indics) #(?,3)
+
 
         if is_training is False:
             return
@@ -117,11 +107,8 @@ class Network(object):
         tf.summary.histogram('dist/edge_dist', self.edgedist)
         tf.summary.histogram('dist/pred', self.pred_dist)
 
-        # weight = tf.pow(0.98, tf.to_float(tf.div(self.step,200)))
         weight = tf.maximum(0.5 - tf.to_float(self.step) / 20000.0, 0.0)
-        # weight = tf.maximum(0.5 - tf.to_float(self.step) / 200000.0, 0.0)
         self.edgemask = tf.to_float(tf.less_equal(weight * self.edgedist + (1 - weight) * self.pred_edgedist, 0.15))
-        # self.edgemask = tf.to_float(tf.less_equal(self.edgedist,0.45))
         self.edge_loss = 50*tf.reduce_sum(self.edgemask * self.edgedist**2 / tf.expand_dims(self.pointclouds_radius ** 2, axis=-1)) / (tf.reduce_sum(self.edgemask) + 1.0)
 
         tf.summary.scalar('weight',weight)
@@ -134,7 +121,6 @@ class Network(object):
             # idx = tf.argmin(self.plane_dist, axis=2,output_type=tf.int32)
             # idx0 = tf.tile(tf.reshape(tf.range(BATCH_SIZE), (BATCH_SIZE, 1)), (1, NUM_POINT*UP_RATIO/2))
             # face_normal = tf.gather_nd(self.pointclouds_plane_normal,tf.stack([idx0,idx],axis=-1))
-
             # dist = tf.where(tf.is_nan(dist),tf.zeros_like(dist),dist)
             self.plane_loss = 500*tf.reduce_mean(self.plane_dist / tf.expand_dims(self.pointclouds_radius**2, axis=-1))
             tf.summary.scalar('loss/plane_loss', self.plane_loss)
@@ -333,10 +319,11 @@ class Network(object):
         ## get patch seed from farthestsampling
         points = tf.convert_to_tensor(np.expand_dims(gm.data,axis=0),dtype=tf.float32)
         start= time.time()
-        seed1_num = int(gm.data.shape[0] / (NUM_POINT/8) * patch_num_ratio)
+        seed1_num = int(gm.data.shape[0] / (NUM_POINT/2) * patch_num_ratio)
 
         ## FPS sampling
         seed = farthest_point_sample(seed1_num*2, points).eval()[0]
+        #seed = np.random.permutation(gm.data.shape[0])
         seed_list = seed[:seed1_num]
         print "farthest distance sampling cost", time.time() - start
 
@@ -363,7 +350,7 @@ class Network(object):
         mm2 = {}
         mm3 = {}
         # for i in xrange(gm.data.shape[0]):
-        for i in xrange(100):
+        for i in xrange(10):
             mm1[i]=[]
             mm2[i]=[]
             mm3[i]=[]
@@ -376,8 +363,10 @@ class Network(object):
         for seed,ratio in tqdm(zip(seed_list,ratios)):
             try:
                 patch_size = int(NUM_POINT * ratio)
-                idx = np.asarray(gm.bfs_knn(seed,patch_size))
+                #idx = np.asarray(gm.bfs_knn(seed,patch_size))
+                idx = np.asarray(gm.geodesic_knn(seed,patch_size))
                 if len(idx)<NUM_POINT:
+                    fail = fail + 1
                     continue
                 idx1 = np.random.permutation(idx.shape[0])[:NUM_POINT]
                 idx1.sort()
@@ -464,15 +453,13 @@ class Network(object):
 
 
     def test_hierarical_prediction(self):
-        data_folder = '../../PointSR_data/virtualscan/select2/*0*_noise_half.xyz'
-        # data_folder = '../../PointSR_data/rawscan/aaa.xyz'
-        # data_folder = '/home/lqyu/chair/tmp.xyz'
+        data_folder = '../data/virtualscan/chair_test1/*3_noise_half.xyz'
+        data_folder = '/home/lqyu/server/proj49/PointSR2/data/paper_result_data4/*_noise_half.xyz'
         phase = data_folder.split('/')[-3]+"_"+data_folder.split('/')[-2]
-        save_path = os.path.join(MODEL_DIR, 'result/' + 'halfnoise_'+ phase+'_512_0.05_dynamic_96')
+        save_path = os.path.join(MODEL_DIR, 'result/' +phase+'_512_0.05_dynamic_96')
 
-        data_folder = '../../PointSR_data/CAD_imperfect/mesh_simu_pc/6*.xyz'
-        data_folder = '../../PointSR_data/tmp/retobettersurface/*.xyz'
-        save_path = os.path.join('../../PointSR_data/tmp/moniter_1024/')
+        # data_folder = '../../PointSR_data/tmp/moniter_input/*.xyz'
+        # save_path = os.path.join('../../PointSR_data/tmp/moniter1024_noresidual_0.05')
 
         self.saver = tf.train.Saver()
         _, restore_model_path = model_utils.pre_load_checkpoint(MODEL_DIR)
@@ -487,16 +474,18 @@ class Network(object):
             samples = glob(data_folder)
             samples.sort()
             for point_path in samples:
-                if 'no_noise' in point_path:
-                    continue
+                # if 'no_noise' in point_path:
+                #     continue
                 edge_path = point_path.replace('new_simu_noise', 'mesh_edge').replace('_noise_double.xyz', '_edge.xyz')
                 edge_path = None
                 print point_path, edge_path
+                start = time.time()
                 gm = GKNN(point_path, edge_path, patch_size=NUM_POINT, patch_num=30,add_noise=False,normalization=False)
 
                 ##get the edge information
                 _,pred,pred_edge = self.pc_prediction(gm,sess,patch_num_ratio=3, edge_threshold=0.05)
-
+                end = time.time()
+                print "total time: ",end-start
                 ## re-prediction with edge information
                 # input, pred,pred_edge = self.pc_prediction(gm,sess,patch_num_ratio=3, edge_threshold=0.05,edge=pred_edge[:,0:3])
 

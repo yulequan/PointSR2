@@ -108,7 +108,7 @@ class Mesh:
 
 
 def preprocessing_data_fn(path):
-    save_path = '/home/lqyu/226-Fandisk_rand-flips/aa/'
+    save_path = '/home/lqyu/server/proj49/PointSR_data/EARdata_norm'
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
@@ -116,10 +116,22 @@ def preprocessing_data_fn(path):
     M.remove_redundent(path,save_path)
 
 def preprocessing_data():
-    file_list = glob('/home/lqyu/226-Fandisk_rand-flips/SWITCH_POT.off')
+    file_list = glob('/home/lqyu/server/proj49/PointSR2/data/EARdata/tool.xyz')
     print len(file_list)
-    pool = ThreadPool(1)
-    pool.map(preprocessing_data_fn, file_list)
+    for item in file_list:
+        preprocessing_data_fn(item)
+    # pool = ThreadPool(1)
+    # pool.map(preprocessing_data_fn, file_list)
 
 if __name__ == '__main__':
-    preprocessing_data()
+    file = glob('/home/lqyu/server/proj49/PointSR2/data/EARdata/*.xyz')
+    for item in file:
+        print item
+        a  = np.loadtxt(item)
+        centroid = np.mean(a,axis=0)
+        a = a-centroid
+        furdistance = np.amax(np.sqrt(np.sum(a*a,axis=1)))
+        a = a/furdistance
+        np.savetxt(item[:-4]+"_norm.xyz", a, fmt='%.6f')
+
+    # preprocessing_data()

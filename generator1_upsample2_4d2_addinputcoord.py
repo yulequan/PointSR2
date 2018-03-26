@@ -36,8 +36,8 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
 
         # Feature Propagation layers
         if not is_training:
-            l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/8), :])
-            l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/8), :])
+            l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/2), :])
+            l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/2), :])
         elif is_crop:
             l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/2), :])
             l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/2), :])
@@ -52,7 +52,7 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
         up_l2_points = pointnet_fp_module(l0_xyz, l2_xyz, None, l2_points, [64], is_training, bn_decay,
                                        scope='fa_layer3',bn=use_bn,ibn = use_ibn)
 
-        feat = tf.concat([up_l4_points, up_l3_points, up_l2_points, l1_points], axis=-1)
+        feat = tf.concat([up_l4_points, up_l3_points, up_l2_points, l1_points,l0_xyz], axis=-1)
         feat = tf.expand_dims(feat, axis=2)
 
         #branch1: the new generate points
@@ -71,29 +71,29 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
                                           bn_decay=bn_decay)
                 up_feat_list.append(up_feat)
         up_feat = tf.concat(up_feat_list, axis=1)
-        up_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
+        dist_feat = tf_util2.conv2d(up_feat, 64, [1, 1],
                                 padding='VALID', stride=[1, 1],
                                 bn=False, is_training=is_training,
-                                scope='coord_fc1', bn_decay=bn_decay, weight_decay=0.0)
-        r_coord = tf_util2.conv2d(up_feat, 3, [1, 1],
+                                scope='dist_fc1', bn_decay=bn_decay, weight_decay=0.0)
+        dist = tf_util2.conv2d(dist_feat, 1, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
-                               scope='coord_fc2', bn_decay=bn_decay,
+                               scope='dist_fc2', bn_decay=bn_decay,
                                activation_fn=None, weight_decay=0.0)
-        coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:,:,0:3],(1,up_ratio,1))
+        dist = tf.squeeze(dist, axis=[2, 3])
 
         #branch2: dist to the edge
-        combined_feat = tf.concat((tf.tile(feat,(1,up_ratio,1,1)),up_feat),axis=-1)
-        dist = tf_util2.conv2d(combined_feat, 64, [1, 1],
+        combined_feat = tf.concat((up_feat, dist_feat),axis=-1)
+        coord_feat = tf_util2.conv2d(combined_feat, 64, [1, 1],
                                padding='VALID', stride=[1, 1],
                                bn=False, is_training=is_training,
-                               scope='dist_fc2', bn_decay=bn_decay,weight_decay=0.0)
-        dist = tf_util2.conv2d(dist, 1, [1, 1],
+                               scope='coord_fc1', bn_decay=bn_decay,weight_decay=0.0)
+        r_coord = tf_util2.conv2d(coord_feat, 3, [1, 1],
                                 padding='VALID', stride=[1, 1],
                                 bn=False, is_training=is_training,
-                                scope='dist_fc3', bn_decay=bn_decay,
+                                scope='coord_fc2', bn_decay=bn_decay,
                                 activation_fn=None,weight_decay=0.0)
-        dist = tf.squeeze(dist,axis=[2,3])
+        coord = tf.squeeze(r_coord, [2]) + tf.tile(l0_xyz[:, :, 0:3], (1, up_ratio, 1))
 
         # prune the points according to probability(how to better prune it? as a guidance???)
         # poolsize = int(num_addpoint * 1.2)

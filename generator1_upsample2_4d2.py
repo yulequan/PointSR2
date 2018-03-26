@@ -36,8 +36,8 @@ def get_gen_model(point_cloud, is_training, scope, bradius = 1.0, reuse=None,use
 
         # Feature Propagation layers
         if not is_training:
-            l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/8), :])
-            l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/8), :])
+            l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/2), :])
+            l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/2), :])
         elif is_crop:
             l0_xyz = tf.gather_nd(l0_xyz, idx[:, :int(num_point * 1/2), :])
             l1_points = tf.gather_nd(l1_points, idx[:, :int(num_point * 1/2), :])
